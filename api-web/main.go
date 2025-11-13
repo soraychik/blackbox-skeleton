@@ -1,21 +1,33 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "BlackBox API Web is running... (stub)")
+	// Устанавливаем режим Gin
+	gin.SetMode(gin.ReleaseMode)
+
+	// Создаем роутер
+	router := gin.Default()
+
+	// Главная страница
+	router.GET("/", func(c *gin.Context) {
+		c.String(http.StatusOK, "BlackBox API Web is running... (stub)")
 	})
 
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "OK")
+	// Health check endpoint
+	router.GET("/health", func(c *gin.Context) {
+		c.String(http.StatusOK, "OK")
 	})
 
 	log.Println("API Web server starting on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+
+	// Запускаем сервер
+	if err := router.Run(":8080"); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
 }
