@@ -9,6 +9,7 @@ function App() {
   const [devices, setDevices] = useState([]);
   const [versions, setVersions] = useState([]);
   const [activeTab, setActiveTab] = useState('devices');
+  const [sortOrder, setSortOrder] = useState('desc'); // 'asc' или 'desc'
 
   useEffect(() => {
     fetchDevices();
@@ -33,6 +34,28 @@ function App() {
     }
   };
 
+  // Функция для сортировки устройств
+  const getSortedDevices = () => {
+    return [...devices].sort((a, b) => {
+      const dateA = new Date(a.created_at);
+      const dateB = new Date(b.created_at);
+      return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+    });
+  };
+
+  // Функция для сортировки версий
+  const getSortedVersions = () => {
+    return [...versions].sort((a, b) => {
+      const dateA = new Date(a.created_at);
+      const dateB = new Date(b.created_at);
+      return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+    });
+  };
+
+  const toggleSortOrder = () => {
+    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+  };
+
   return (
     <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
       <h1>BlackBox Config Manager</h1>
@@ -52,6 +75,22 @@ function App() {
         </button>
       </div>
 
+      {/* Кнопка сортировки */}
+      <div style={{ marginBottom: '10px' }}>
+        <button 
+          onClick={toggleSortOrder}
+          style={{ 
+            padding: '8px 16px', 
+            backgroundColor: '#f0f0f0', 
+            border: '1px solid #ccc',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          Sort by Created At: {sortOrder === 'asc' ? '↑ Oldest First' : '↓ Newest First'}
+        </button>
+      </div>
+
       {activeTab === 'devices' && (
         <div>
           <h2>Devices</h2>
@@ -64,7 +103,7 @@ function App() {
               </tr>
             </thead>
             <tbody>
-              {devices.map(device => (
+              {getSortedDevices().map(device => (
                 <tr key={device.id}>
                   <td>{device.id}</td>
                   <td>{device.name}</td>
@@ -90,7 +129,7 @@ function App() {
               </tr>
             </thead>
             <tbody>
-              {versions.map(version => (
+              {getSortedVersions().map(version => (
                 <tr key={version.id}>
                   <td>{version.id}</td>
                   <td>{version.device_name} (ID: {version.device_id})</td>
