@@ -103,7 +103,7 @@ func processSingleFile(db *database.DB, processor *fileprocessor.FileProcessor, 
 	if latestVersion == nil || latestVersion.FileHash != fileInfo.Hash {
 		log.Printf("New or changed config detected for %s", fileInfo.Name)
 
-		archivePath, err := processor.SaveToArchive(fileInfo)
+		archivePath, err := processor.SaveToArchive(fileInfo, device.ID)
 		if err != nil {
 			return err
 		}

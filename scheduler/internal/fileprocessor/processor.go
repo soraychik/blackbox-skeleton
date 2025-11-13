@@ -56,15 +56,17 @@ func (fp *FileProcessor) calculateHash(content []byte) string {
 	return fmt.Sprintf("%x", sha256.Sum256(content))
 }
 
-// SaveToArchive сохраняет файл в архивную структуру
-func (fp *FileProcessor) SaveToArchive(fileInfo *models.FileInfo) (string, error) {
-	// Создаём путь: archived_configs/{device}/{year-month}/{day}.conf
+// SaveToArchive сохраняет файл в архивную структуру /configs/{device_id}/{yyyy}/{mm}/{dd}/{hash}.txt
+func (fp *FileProcessor) SaveToArchive(fileInfo *models.FileInfo, deviceID int) (string, error) {
+	// Создаём путь: /configs/{device_id}/{yyyy}/{mm}/{dd}/{hash}.txt
 	now := time.Now()
 	archivePath := filepath.Join(
 		fp.archiveBasePath,
-		fileInfo.Name,
-		now.Format("2006-01"), // 2024-11
-		now.Format("02.conf"), // 12.conf
+		fmt.Sprintf("%d", deviceID),          // device_id
+		now.Format("2006"),                   // yyyy
+		now.Format("01"),                     // mm
+		now.Format("02"),                     // dd
+		fmt.Sprintf("%s.txt", fileInfo.Hash), // hash.txt
 	)
 
 	// Создаём все необходимые директории
@@ -91,7 +93,7 @@ func (fp *FileProcessor) GetFilesInDirectory(dirPath string) ([]string, error) {
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".conf") {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), "config") {
 			files = append(files, filepath.Join(dirPath, entry.Name()))
 		}
 	}
