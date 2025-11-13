@@ -1,1 +1,65 @@
-# Главный файл, описывающий все сервисы
+services:
+  mysql-db:
+    image: mysql:8.0
+    container_name: blackbox-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: blackbox
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: apppassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./sql-init/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - blackbox-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uappuser", "-papppassword"]
+      timeout: 20s
+      retries: 10
+      start_period: 30s
+
+  scheduler:
+    build: ./scheduler
+    container_name: blackbox-scheduler
+    restart: unless-stopped
+    volumes:
+      - ./scheduler/configs:/app/configs
+      - ./storage/archived_configs:/app/archived_configs
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+    networks:
+      - blackbox-net
+
+  api-web:
+    build: ./api-web
+    container_name: blackbox-api-web
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+    networks:
+      - blackbox-net
+
+  frontend:
+    build: ./frontend
+    container_name: blackbox-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-web
+    networks:
+      - blackbox-net
+
+volumes:
+  mysql_data:
+
+networks:
+  blackbox-net:
+    driver: bridge
