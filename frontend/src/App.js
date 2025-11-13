@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8080';
+//const API_BASE = 'http://localhost:8080';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+console.log('API URL:', API_BASE);
 
 function App() {
   const [devices, setDevices] = useState([]);

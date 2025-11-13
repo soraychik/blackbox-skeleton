@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -14,10 +15,27 @@ type DB struct {
 	connection *sql.DB
 }
 
+// getEnv возвращает значение переменной окружения или значение по умолчанию
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
 // NewDB создаёт новое подключение к БД
 func NewDB() (*DB, error) {
-	// Добавляем параметр parseTime=true для правильного парсинга дат
-	dsn := "appuser:apppassword@tcp(mysql-db:3306)/blackbox?parseTime=true"
+	// Берем настройки из переменных окружения
+	dbHost := getEnv("DATABASE_HOST", "mysql-db")
+	dbPort := getEnv("DATABASE_PORT", "3306")
+	dbUser := getEnv("DATABASE_USER", "appuser")
+	dbPassword := getEnv("DATABASE_PASSWORD", "apppassword")
+	dbName := getEnv("DATABASE_NAME", "blackbox")
+
+	// Формируем DSN строку из переменных окружения
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
+		dbUser, dbPassword, dbHost, dbPort, dbName)
+
 	log.Printf("Connecting to MySQL: %s", dsn)
 
 	conn, err := sql.Open("mysql", dsn)

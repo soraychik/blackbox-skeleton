@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -54,7 +55,14 @@ func main() {
 
 // NewDB создаёт подключение к БД (скопировано из database пакета)
 func NewDB() (*sql.DB, error) {
-	dsn := "appuser:apppassword@tcp(mysql-db:3306)/blackbox?parseTime=true"
+	// Берем настройки из переменных окружения
+	dbHost := getEnv("DATABASE_HOST", "mysql-db")
+	dbPort := getEnv("DATABASE_PORT", "3306")
+	dbUser := getEnv("DATABASE_USER", "appuser")
+	dbPassword := getEnv("DATABASE_PASSWORD", "apppassword")
+	dbName := getEnv("DATABASE_NAME", "blackbox")
+
+	dsn := dbUser + ":" + dbPassword + "@tcp(" + dbHost + ":" + dbPort + ")/" + dbName + "?parseTime=true"
 	log.Printf("Connecting to MySQL: %s", dsn)
 
 	conn, err := sql.Open("mysql", dsn)
@@ -73,6 +81,13 @@ func NewDB() (*sql.DB, error) {
 
 	log.Println("✅ Successfully connected to MySQL database")
 	return conn, nil
+}
+
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }
 
 // GetDevices возвращает список всех устройств
