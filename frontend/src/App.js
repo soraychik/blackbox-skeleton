@@ -87,7 +87,7 @@ function App() {
             cursor: 'pointer'
           }}
         >
-          Sort by Created At: {sortOrder === 'asc' ? '↑ Oldest First' : '↓ Newest First'}
+          Sort: {sortOrder === 'asc' ? 'Oldest First' : 'Newest First'}
         </button>
       </div>
 
