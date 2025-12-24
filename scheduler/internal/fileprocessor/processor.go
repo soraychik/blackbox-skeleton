@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -38,7 +37,7 @@ func (fp *FileProcessor) ProcessFile(filePath string) (*models.FileInfo, error) 
 	// Вычисляем хэш содержимого
 	hash := fp.calculateHash(content)
 
-	// Извлекаем имя устройства из имени файла (без расширения)
+	// Извлекаем имя устройства из имени файла 
 	deviceName := fileInfo.Name()
 
 	return &models.FileInfo{
@@ -83,20 +82,20 @@ func (fp *FileProcessor) SaveToArchive(fileInfo *models.FileInfo, deviceID int) 
 	return archivePath, nil
 }
 
-// GetFilesInDirectory возвращает список файлов в директории
+// GetFilesInDirectory возвращает список всех файлов в директории (любое расширение)
 func (fp *FileProcessor) GetFilesInDirectory(dirPath string) ([]string, error) {
-	var files []string
+    var files []string
 
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read directory: %v", err)
-	}
+    entries, err := os.ReadDir(dirPath)
+    if err != nil {
+        return nil, fmt.Errorf("failed to read directory: %v", err)
+    }
 
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), "config") {
-			files = append(files, filepath.Join(dirPath, entry.Name()))
-		}
-	}
+    for _, entry := range entries {
+        if !entry.IsDir() {
+            files = append(files, filepath.Join(dirPath, entry.Name()))
+        }
+    }
 
-	return files, nil
+    return files, nil
 }

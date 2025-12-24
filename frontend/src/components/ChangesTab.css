@@ -20,59 +20,224 @@
   font-size: 14px;
 }
 
-.changes-content {
-  margin-top: 30px;
-}
-
-.comparison-placeholder {
-  display: flex;
+.version-selectors {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 20px;
-  min-height: 400px;
-}
-
-.comparison-side {
-  flex: 1;
-  border: 2px dashed #e0e0e0;
-  border-radius: 8px;
-  padding: 20px;
-  background-color: #fafafa;
-}
-
-.comparison-side h3 {
-  color: #282c34;
   margin-bottom: 20px;
-  text-align: center;
-  font-size: 18px;
 }
 
-.placeholder-content {
+.version-selector {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+}
+
+.version-selector label {
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #333;
+}
+
+.version-select {
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  background-color: white;
+  cursor: pointer;
+}
+
+.version-select:focus {
+  outline: none;
+  border-color: #282c34;
+}
+
+.version-info {
+  margin-top: 8px;
+  color: #666;
+  font-size: 12px;
+}
+
+.compare-button-container {
+  display: flex;
   justify-content: center;
-  height: 100%;
-  min-height: 300px;
+  margin: 20px 0;
 }
 
-.placeholder-content p {
-  color: #999;
+.compare-button {
+  padding: 12px 24px;
+  background-color: #282c34;
+  color: white;
+  border: none;
+  border-radius: 4px;
   font-size: 16px;
-  text-align: center;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.3s;
 }
 
-.comparison-divider {
-  width: 2px;
-  background-color: #e0e0e0;
+.compare-button:hover:not(:disabled) {
+  background-color: #3d4451;
+}
+
+.compare-button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.diff-container {
+  margin-top: 30px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.diff-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background-color: #f5f5f5;
+  border-bottom: 2px solid #e0e0e0;
+  padding: 15px;
+}
+
+.diff-header-left,
+.diff-header-right {
+  padding: 0 15px;
+}
+
+.diff-header-left {
+  border-right: 1px solid #e0e0e0;
+}
+
+.diff-header h3 {
+  margin: 0 0 5px 0;
+  font-size: 16px;
+  color: #282c34;
+}
+
+.diff-header small {
+  color: #666;
+  font-size: 12px;
+}
+
+.diff-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.diff-side {
+  border-right: 1px solid #e0e0e0;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.diff-side-right {
+  border-right: none;
+}
+
+.diff-lines {
+  padding: 10px;
+}
+
+.diff-line {
+  display: flex;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 2px 0;
+  min-height: 20px;
+}
+
+.diff-line-number {
+  display: inline-block;
+  width: 50px;
+  padding-right: 10px;
+  text-align: right;
+  color: #999;
+  user-select: none;
   flex-shrink: 0;
 }
 
-@media (max-width: 768px) {
-  .comparison-placeholder {
-    flex-direction: column;
-  }
-  
-  .comparison-divider {
-    width: 100%;
-    height: 2px;
-  }
+.diff-line-content {
+  flex: 1;
+  padding-left: 10px;
 }
 
+.diff-line-unchanged {
+  background-color: white;
+}
+
+.diff-line-added {
+  background-color: #d4edda;
+  border-left: 3px solid #28a745;
+}
+
+.diff-line-removed {
+  background-color: #f8d7da;
+  border-left: 3px solid #dc3545;
+}
+
+.diff-line-added .diff-line-content {
+  color: #155724;
+}
+
+.diff-line-removed .diff-line-content {
+  color: #721c24;
+}
+
+.diff-line-empty {
+  background-color: #f8f9fa;
+  min-height: 20px;
+}
+
+/* Синхронизация прокрутки */
+.diff-content {
+  scrollbar-width: thin;
+  scrollbar-color: #ccc #f5f5f5;
+}
+
+.diff-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.diff-content::-webkit-scrollbar-track {
+  background: #f5f5f5;
+}
+
+.diff-content::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 4px;
+}
+
+.diff-content::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+
+@media (max-width: 768px) {
+  .version-selectors {
+    grid-template-columns: 1fr;
+  }
+
+  .diff-content {
+    grid-template-columns: 1fr;
+    max-height: 400px;
+  }
+
+  .diff-side {
+    border-right: none;
+    border-bottom: 1px solid #e0e0e0;
+  }
+
+  .diff-header {
+    grid-template-columns: 1fr;
+  }
+
+  .diff-header-left {
+    border-right: none;
+    border-bottom: 1px solid #e0e0e0;
+    padding-bottom: 15px;
+    margin-bottom: 15px;
+  }
+}

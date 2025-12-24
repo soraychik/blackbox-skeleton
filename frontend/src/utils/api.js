@@ -52,5 +52,17 @@ export const getVersions = async () => {
   return response.data.versions || [];
 };
 
+export const getVersionContent = async (versionId) => {
+  const response = await api.get(`/versions/${versionId}/content`, {
+    responseType: 'text'
+  });
+  return response.data;
+};
+
+export const getVersionDiff = async (versionId1, versionId2) => {
+  const response = await api.get(`/versions/diff/${versionId1}/${versionId2}`);
+  return response.data;
+};
+
 export default api;
 

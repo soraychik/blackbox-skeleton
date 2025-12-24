@@ -40,6 +40,10 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    volumes:
+      - ./storage/archived_configs:/app/archived_configs
+    environment:
+      - ARCHIVE_BASE_PATH=/app/archived_configs
     depends_on:
       mysql-db:
         condition: service_healthy
