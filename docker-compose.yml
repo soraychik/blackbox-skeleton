@@ -46,17 +46,6 @@ services:
     networks:
       - blackbox-net
 
-  frontend:
-    build: ./frontend
-    container_name: blackbox-frontend
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    depends_on:
-      - api-web
-    networks:
-      - blackbox-net
-
 volumes:
   mysql_data:
 
