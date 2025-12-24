@@ -39,7 +39,7 @@ func (fp *FileProcessor) ProcessFile(filePath string) (*models.FileInfo, error) 
 	hash := fp.calculateHash(content)
 
 	// Извлекаем имя устройства из имени файла (без расширения)
-	deviceName := strings.TrimSuffix(fileInfo.Name(), filepath.Ext(fileInfo.Name()))
+	deviceName := fileInfo.Name()
 
 	return &models.FileInfo{
 		Name:    deviceName,

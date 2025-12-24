@@ -92,7 +92,7 @@ const DevicesTab = () => {
         </tbody>
       </table>
     </div>
-  );a
+  );
 };
 
 export default DevicesTab;
