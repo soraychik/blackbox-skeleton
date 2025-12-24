@@ -26,34 +26,19 @@ func main() {
 	// 3. Создаём процессор файлов
 	processor := fileprocessor.NewFileProcessor("/app/archived_configs")
 
-	// 4. Бесконечный цикл с периодической проверкой
-	ticker := time.NewTicker(1 * time.Minute)
+	// 4. Сразу обрабатываем файлы при запуске
+	log.Println("Performing initial file scan...")
+	processFiles(db, processor)
+	
+	// 5. Бесконечный цикл с периодической проверкой каждые 30 секунд
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	log.Println("Scheduler started. Monitoring for new config files...")
+	log.Println("Scheduler started. Monitoring for new config files every 30 seconds...")
 
 	for range ticker.C {
 		log.Println("Checking for new config files...")
-
-		files, err := processor.GetFilesInDirectory("/app/configs")
-		if err != nil {
-			log.Printf("Error reading source directory: %v", err)
-			continue
-		}
-
-		if len(files) == 0 {
-			log.Println("No config files found")
-			continue
-		}
-
-		log.Printf("Found %d config file(s)", len(files))
-
-		for _, filePath := range files {
-			if err := processSingleFile(db, processor, filePath); err != nil {
-				log.Printf("Error processing file %s: %v", filePath, err)
-			}
-		}
-
+		processFiles(db, processor)
 		log.Println("File processing cycle completed")
 	}
 }
@@ -76,6 +61,28 @@ func waitForMySQL() error {
 	}
 
 	return fmt.Errorf("MySQL did not become ready after %d attempts", maxAttempts)
+}
+
+// processFiles обрабатывает все файлы в директории
+func processFiles(db *database.DB, processor *fileprocessor.FileProcessor) {
+	files, err := processor.GetFilesInDirectory("/app/configs")
+	if err != nil {
+		log.Printf("Error reading source directory: %v", err)
+		return
+	}
+
+	if len(files) == 0 {
+		log.Println("No config files found")
+		return
+	}
+
+	log.Printf("Found %d config file(s)", len(files))
+
+	for _, filePath := range files {
+		if err := processSingleFile(db, processor, filePath); err != nil {
+			log.Printf("Error processing file %s: %v", filePath, err)
+		}
+	}
 }
 
 // processSingleFile обрабатывает один файл конфига
