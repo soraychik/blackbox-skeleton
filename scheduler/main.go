@@ -11,26 +11,26 @@ import (
 func main() {
 	log.Println("Starting BlackBox Scheduler...")
 
-	// 1. Ждём пока MySQL запустится
+	// Ждём пока MySQL запустится
 	if err := waitForMySQL(); err != nil {
 		log.Fatalf("Failed to wait for MySQL: %v", err)
 	}
 
-	// 2. Подключаемся к БД
+	// Подключаемся к БД
 	db, err := database.NewDB()
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
 
-	// 3. Создаём процессор файлов
+	// Создаём процессор файлов
 	processor := fileprocessor.NewFileProcessor("/app/archived_configs")
 
-	// 4. Сразу обрабатываем файлы при запуске
+	// Сразу обрабатываем файлы при запуске
 	log.Println("Performing initial file scan...")
 	processFiles(db, processor)
-	
-	// 5. Бесконечный цикл с периодической проверкой каждые 30 секунд
+
+	// Бесконечный цикл с периодической проверкой каждые 30 секунд
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -52,7 +52,7 @@ func waitForMySQL() error {
 		db, err := database.NewDB()
 		if err == nil {
 			db.Close()
-			log.Println("✅ MySQL is ready!")
+			log.Println("MySQL is ready!")
 			return nil
 		}
 

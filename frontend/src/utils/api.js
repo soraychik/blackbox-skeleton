@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Определяем URL API
-// В браузере всегда используем localhost или значение из переменной окружения
+// В браузере используем localhost или значение из переменной окружения
 // так как браузер работает на хосте пользователя, а не внутри Docker сети
 const getApiUrl = () => {
   // Если переменная окружения установлена, используем её
@@ -10,13 +10,12 @@ const getApiUrl = () => {
   }
   
   // По умолчанию используем localhost:8080
-  // В Docker это будет работать, если порт 8080 проброшен на хост
   return 'http://localhost:8080';
 };
 
 const API_URL = getApiUrl();
 
-// Логируем используемый URL для отладки (только в development)
+// Логируем используемый URL для отладки
 if (process.env.NODE_ENV === 'development') {
   console.log('API URL:', API_URL);
 }

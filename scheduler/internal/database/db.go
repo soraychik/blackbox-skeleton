@@ -54,7 +54,7 @@ func NewDB() (*DB, error) {
 		return nil, fmt.Errorf("failed to ping database: %v", err)
 	}
 
-	log.Println("✅ Successfully connected to MySQL database")
+	log.Println("Successfully connected to MySQL database")
 	return &DB{connection: conn}, nil
 }
 
@@ -107,7 +107,7 @@ func (db *DB) GetLatestVersion(deviceID int) (*models.ConfigVersion, error) {
 	).Scan(&version.ID, &version.DeviceID, &version.VersionDate, &version.FilePath, &version.FileHash, &version.CreatedAt)
 
 	if err == sql.ErrNoRows {
-		return nil, nil // Версий ещё нет - это нормально
+		return nil, nil // Версий ещё нет
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to get latest version: %v", err)
 	}
@@ -122,7 +122,6 @@ func (db *DB) SaveVersion(deviceID int, filePath, fileHash string, versionDate t
         VALUES (?, ?, ?, ?)`,
 		deviceID, versionDate, filePath, fileHash,
 	)
-
 	if err != nil {
 		return fmt.Errorf("failed to save version: %v", err)
 	}
@@ -131,7 +130,7 @@ func (db *DB) SaveVersion(deviceID int, filePath, fileHash string, versionDate t
 	return nil
 }
 
-// Close закрывает подключение к БД
+// Закрывает подключение к БД
 func (db *DB) Close() error {
 	return db.connection.Close()
 }

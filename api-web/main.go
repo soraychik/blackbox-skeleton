@@ -30,9 +30,6 @@ func main() {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// Или простой вариант CORS:
-	// router.Use(cors.Default())
-
 	// Главная страница
 	router.GET("/", func(c *gin.Context) {
 		c.String(http.StatusOK, "BlackBox API Web is running...")
@@ -52,7 +49,7 @@ func main() {
 	// Получить все версии конфигов
 	router.GET("/versions", getVersions)
 
-	// Получить diff между двумя версиями (должен быть перед /versions/:id, чтобы избежать конфликта)
+	// Получить diff между двумя версиями
 	router.GET("/versions/diff/:id1/:id2", getVersionDiff)
 
 	// Получить содержимое конфига по ID версии
@@ -62,7 +59,7 @@ func main() {
 	router.Run(":8080")
 }
 
-// NewDB создаёт подключение к БД (скопировано из database пакета)
+// NewDB создаёт подключение к БД (из database пакета)
 func NewDB() (*sql.DB, error) {
 	// Берем настройки из переменных окружения
 	dbHost := getEnv("DATABASE_HOST", "mysql-db")
@@ -88,7 +85,7 @@ func NewDB() (*sql.DB, error) {
 		return nil, err
 	}
 
-	log.Println("✅ Successfully connected to MySQL database")
+	log.Println("Successfully connected to MySQL database")
 	return conn, nil
 }
 
@@ -159,7 +156,6 @@ func getDeviceByID(c *gin.Context) {
 		"SELECT id, name, created_at FROM devices WHERE id = ?",
 		id,
 	).Scan(&deviceID, &name, &createdAt)
-
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Device not found"})
 		return
@@ -241,12 +237,12 @@ func getVersionContent(c *gin.Context) {
 		return
 	}
 
-	// Получаем базовый путь к архиву из переменной окружения или используем дефолтный
+	// Получаем базовый путь к архиву из переменной окружения
 	archiveBasePath := getEnv("ARCHIVE_BASE_PATH", "/app/archived_configs")
-	
+
 	// Нормализуем путь
 	finalPath := filePath
-	
+
 	// Если путь абсолютный и уже начинается с правильного базового пути, используем как есть
 	if filepath.IsAbs(filePath) && strings.HasPrefix(filePath, archiveBasePath) {
 		finalPath = filepath.Clean(filePath)
@@ -270,16 +266,16 @@ func getVersionContent(c *gin.Context) {
 		// Если путь относительный, добавляем базовый путь
 		finalPath = filepath.Clean(filepath.Join(archiveBasePath, filePath))
 	}
-	
+
 	log.Printf("Reading config file: original path='%s', final path='%s', base='%s'", filePath, finalPath, archiveBasePath)
-	
+
 	// Проверяем существование файла
 	if _, err := os.Stat(finalPath); os.IsNotExist(err) {
 		log.Printf("File does not exist: %s (original: %s)", finalPath, filePath)
 		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Config file not found: %s", finalPath)})
 		return
 	}
-	
+
 	content, err := os.ReadFile(finalPath)
 	if err != nil {
 		log.Printf("Error reading file %s (original: %s): %v", finalPath, filePath, err)
@@ -292,8 +288,8 @@ func getVersionContent(c *gin.Context) {
 
 // DiffLine представляет одну строку в diff
 type DiffLine struct {
-	Type    string `json:"type"`    // "added", "removed", "unchanged"
-	Content string `json:"content"` // содержимое строки
+	Type    string `json:"type"`     // "added", "removed", "unchanged"
+	Content string `json:"content"`  // содержимое строки
 	LineNum int    `json:"line_num"` // номер строки (для левой или правой версии)
 }
 
@@ -310,7 +306,7 @@ type DiffResult struct {
 func getVersionDiff(c *gin.Context) {
 	id1Param := c.Param("id1")
 	id2Param := c.Param("id2")
-	
+
 	id1, err := strconv.Atoi(id1Param)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid version ID 1"})
@@ -353,7 +349,7 @@ func getVersionDiff(c *gin.Context) {
 		if filepath.IsAbs(path) && strings.HasPrefix(path, archiveBasePath) {
 			return filepath.Clean(path)
 		}
-		
+
 		// Если путь абсолютный, но с другим префиксом, извлекаем относительную часть
 		if filepath.IsAbs(path) {
 			if strings.Contains(path, "archived_configs") {
@@ -366,7 +362,7 @@ func getVersionDiff(c *gin.Context) {
 			// Если не нашли archived_configs, пробуем использовать как относительный
 			return filepath.Clean(filepath.Join(archiveBasePath, filepath.Base(path)))
 		}
-		
+
 		// Если путь относительный, добавляем базовый путь
 		return filepath.Clean(filepath.Join(archiveBasePath, path))
 	}
@@ -374,7 +370,7 @@ func getVersionDiff(c *gin.Context) {
 	finalPath1 := normalizePath(filePath1)
 	finalPath2 := normalizePath(filePath2)
 
-	log.Printf("Reading diff files: path1='%s' (original: '%s'), path2='%s' (original: '%s')", 
+	log.Printf("Reading diff files: path1='%s' (original: '%s'), path2='%s' (original: '%s')",
 		finalPath1, filePath1, finalPath2, filePath2)
 
 	// Проверяем существование файлов
@@ -383,7 +379,7 @@ func getVersionDiff(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Config file 1 not found: %s", finalPath1)})
 		return
 	}
-	
+
 	if _, err := os.Stat(finalPath2); os.IsNotExist(err) {
 		log.Printf("File 2 does not exist: %s (original: %s)", finalPath2, filePath2)
 		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Config file 2 not found: %s", finalPath2)})
@@ -423,7 +419,7 @@ func computeDiff(text1, text2 string) []DiffLine {
 	lines1 := strings.Split(text1, "\n")
 	lines2 := strings.Split(text2, "\n")
 
-	// Простой алгоритм построчного сравнения
+	// Алгоритм построчного сравнения
 	var diff []DiffLine
 	i, j := 0, 0
 	lineNum1, lineNum2 := 1, 1
@@ -460,10 +456,9 @@ func computeDiff(text1, text2 string) []DiffLine {
 			lineNum2++
 		} else {
 			// Строки разные - нужно найти следующее совпадение
-			// Простая эвристика: ищем совпадение в следующих N строках
 			found := false
 			lookahead := 5
-			
+
 			for k := 1; k <= lookahead && j+k < len(lines2); k++ {
 				if i < len(lines1) && lines1[i] == lines2[j+k] {
 					// Найдено совпадение - строки j...j+k-1 добавлены

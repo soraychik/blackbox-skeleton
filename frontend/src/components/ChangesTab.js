@@ -98,9 +98,6 @@ const ChangesTab = () => {
     <div className="changes-container">
       <div className="changes-header">
         <h2>Сравнение версий конфигов</h2>
-        <p className="changes-description">
-          Выберите две версии для side-by-side сравнения
-        </p>
       </div>
 
       <div className="version-selectors">

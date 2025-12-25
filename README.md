@@ -25,13 +25,3 @@ docker-compose -f docker-compose.database.yml up -d --build
 netstat -ao | findstr :80
 taskkill -PID [PID] -F
 ```
-
-## Переменные окружения
-
-Создайте файл `.env` в корне проекта (опционально):
-
-```
-REACT_APP_API_URL=http://localhost:8080
-```
-
-Если переменная не указана, будет использовано значение по умолчанию `http://localhost:8080`.
