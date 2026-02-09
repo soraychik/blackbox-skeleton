@@ -14,6 +14,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
 func main() {
@@ -414,107 +415,54 @@ func getVersionDiff(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// computeDiff вычисляет построчный diff между двумя текстами
+// computeDiff вычисляет построчный diff между двумя текстами с использованием Google's optimized diff-match-patch
 func computeDiff(text1, text2 string) []DiffLine {
-	lines1 := strings.Split(text1, "\n")
-	lines2 := strings.Split(text2, "\n")
+	dmp := diffmatchpatch.New()
 
-	// Алгоритм построчного сравнения
-	var diff []DiffLine
-	i, j := 0, 0
-	lineNum1, lineNum2 := 1, 1
+	// Используем line mode для построчного сравнения
+	charData1, charData2, lineArray := dmp.DiffLinesToChars(text1, text2)
+	diffs := dmp.DiffMain(charData1, charData2, false)
+	diffs = dmp.DiffCharsToLines(diffs, lineArray)
 
-	for i < len(lines1) || j < len(lines2) {
-		if i >= len(lines1) {
-			// Остались только строки из text2 (добавленные)
-			diff = append(diff, DiffLine{
-				Type:    "added",
-				Content: lines2[j],
-				LineNum: lineNum2,
-			})
-			j++
-			lineNum2++
-		} else if j >= len(lines2) {
-			// Остались только строки из text1 (удаленные)
-			diff = append(diff, DiffLine{
-				Type:    "removed",
-				Content: lines1[i],
-				LineNum: lineNum1,
-			})
-			i++
-			lineNum1++
-		} else if lines1[i] == lines2[j] {
-			// Строки одинаковые
-			diff = append(diff, DiffLine{
-				Type:    "unchanged",
-				Content: lines1[i],
-				LineNum: lineNum1,
-			})
-			i++
-			j++
-			lineNum1++
-			lineNum2++
-		} else {
-			// Строки разные - нужно найти следующее совпадение
-			found := false
-			lookahead := 5
+	// Конвертируем в наш формат DiffLine
+	var result []DiffLine
+	lineNum := 1
 
-			for k := 1; k <= lookahead && j+k < len(lines2); k++ {
-				if i < len(lines1) && lines1[i] == lines2[j+k] {
-					// Найдено совпадение - строки j...j+k-1 добавлены
-					for l := 0; l < k; l++ {
-						diff = append(diff, DiffLine{
-							Type:    "added",
-							Content: lines2[j+l],
-							LineNum: lineNum2 + l,
-						})
-					}
-					j += k
-					lineNum2 += k
-					found = true
-					break
-				}
+	for _, diff := range diffs {
+		lines := strings.Split(diff.Text, "\n")
+
+		// Удаляем пустую строку в конце если есть
+		if len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
+
+		for _, line := range lines {
+			if line == "" {
+				continue
 			}
 
-			if !found {
-				// Ищем в обратном направлении
-				for k := 1; k <= lookahead && i+k < len(lines1); k++ {
-					if j < len(lines2) && lines1[i+k] == lines2[j] {
-						// Найдено совпадение - строки i...i+k-1 удалены
-						for l := 0; l < k; l++ {
-							diff = append(diff, DiffLine{
-								Type:    "removed",
-								Content: lines1[i+l],
-								LineNum: lineNum1 + l,
-							})
-						}
-						i += k
-						lineNum1 += k
-						found = true
-						break
-					}
-				}
+			var diffType string
+			switch diff.Type {
+			case diffmatchpatch.DiffInsert:
+				diffType = "added"
+			case diffmatchpatch.DiffDelete:
+				diffType = "removed"
+			case diffmatchpatch.DiffEqual:
+				diffType = "unchanged"
 			}
 
-			if !found {
-				// Не нашли совпадение - помечаем как измененные
-				diff = append(diff, DiffLine{
-					Type:    "removed",
-					Content: lines1[i],
-					LineNum: lineNum1,
-				})
-				diff = append(diff, DiffLine{
-					Type:    "added",
-					Content: lines2[j],
-					LineNum: lineNum2,
-				})
-				i++
-				j++
-				lineNum1++
-				lineNum2++
+			result = append(result, DiffLine{
+				Type:    diffType,
+				Content: line,
+				LineNum: lineNum,
+			})
+
+			// Увеличиваем номер строки только для unchanged и added строк
+			if diff.Type != diffmatchpatch.DiffDelete {
+				lineNum++
 			}
 		}
 	}
 
-	return diff
+	return result
 }
