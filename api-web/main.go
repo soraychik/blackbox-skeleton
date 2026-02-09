@@ -6,11 +6,12 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"blackbox-api/internal/endpoints"
+	"blackbox-api/internal/storage"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
@@ -55,6 +56,9 @@ func main() {
 
 	// Получить содержимое конфига по ID версии
 	router.GET("/versions/:id/content", getVersionContent)
+
+	// Storage endpoints
+	endpoints.AddStorageEndpoints(router)
 
 	log.Println("API Web server starting on :8080")
 	router.Run(":8080")
@@ -181,7 +185,7 @@ func getVersions(c *gin.Context) {
 	defer db.Close()
 
 	rows, err := db.Query(`
-		SELECT cv.id, cv.device_id, d.name, cv.version_date, cv.file_path, cv.file_hash, cv.created_at 
+		SELECT cv.id, cv.device_id, d.name, cv.version_date, cv.file_path, cv.file_hash, cv.storage_type, cv.minio_object_name, cv.diff_size_bytes, cv.created_at 
 		FROM config_versions cv
 		JOIN devices d ON cv.device_id = d.id
 		ORDER BY cv.created_at DESC
@@ -195,28 +199,33 @@ func getVersions(c *gin.Context) {
 	var versions []gin.H
 	for rows.Next() {
 		var id, deviceID int
-		var deviceName, versionDate, filePath, fileHash, createdAt string
+		var deviceName, versionDate, filePath, fileHash, storageType, minioObjectName string
+		var diffSizeBytes int
+		var createdAt string
 
-		if err := rows.Scan(&id, &deviceID, &deviceName, &versionDate, &filePath, &fileHash, &createdAt); err != nil {
+		if err := rows.Scan(&id, &deviceID, &deviceName, &versionDate, &filePath, &fileHash, &storageType, &minioObjectName, &diffSizeBytes, &createdAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan version"})
 			return
 		}
 
 		versions = append(versions, gin.H{
-			"id":           id,
-			"device_id":    deviceID,
-			"device_name":  deviceName,
-			"version_date": versionDate,
-			"file_path":    filePath,
-			"file_hash":    fileHash,
-			"created_at":   createdAt,
+			"id":                id,
+			"device_id":         deviceID,
+			"device_name":       deviceName,
+			"version_date":      versionDate,
+			"file_path":         filePath,
+			"file_hash":         fileHash,
+			"storage_type":      storageType,
+			"minio_object_name": minioObjectName,
+			"diff_size_bytes":   diffSizeBytes,
+			"created_at":        createdAt,
 		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"versions": versions})
 }
 
-// GetVersionContent возвращает содержимое конфига по ID версии
+// GetVersionContent возвращает содержимое конфига по ID версии из MinIO
 func getVersionContent(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -231,56 +240,36 @@ func getVersionContent(c *gin.Context) {
 	}
 	defer db.Close()
 
+	var minioObjectName string
 	var filePath string
-	err = db.QueryRow("SELECT file_path FROM config_versions WHERE id = ?", id).Scan(&filePath)
+	err = db.QueryRow("SELECT minio_object_name, file_path FROM config_versions WHERE id = ?", id).Scan(&minioObjectName, &filePath)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Version not found"})
 		return
 	}
 
-	// Получаем базовый путь к архиву из переменной окружения
-	archiveBasePath := getEnv("ARCHIVE_BASE_PATH", "/app/archived_configs")
-
-	// Нормализуем путь
-	finalPath := filePath
-
-	// Если путь абсолютный и уже начинается с правильного базового пути, используем как есть
-	if filepath.IsAbs(filePath) && strings.HasPrefix(filePath, archiveBasePath) {
-		finalPath = filepath.Clean(filePath)
-	} else if filepath.IsAbs(filePath) {
-		// Если путь абсолютный, но с другим префиксом, извлекаем относительную часть
-		if strings.Contains(filePath, "archived_configs") {
-			parts := strings.SplitN(filePath, "archived_configs", 2)
-			if len(parts) > 1 {
-				relPath := strings.TrimPrefix(parts[1], "/")
-				finalPath = filepath.Join(archiveBasePath, relPath)
-			} else {
-				// Если не нашли archived_configs, пробуем использовать как относительный
-				finalPath = filepath.Join(archiveBasePath, filepath.Base(filePath))
-			}
-		} else {
-			// Если абсолютный путь без archived_configs, используем имя файла
-			finalPath = filepath.Join(archiveBasePath, filepath.Base(filePath))
-		}
-		finalPath = filepath.Clean(finalPath)
-	} else {
-		// Если путь относительный, добавляем базовый путь
-		finalPath = filepath.Clean(filepath.Join(archiveBasePath, filePath))
+	// Если minio_object_name пуст, пробуем конвертировать старый путь
+	if minioObjectName == "" && filePath != "" {
+		minioObjectName = strings.TrimPrefix(filePath, "configs/")
 	}
 
-	log.Printf("Reading config file: original path='%s', final path='%s', base='%s'", filePath, finalPath, archiveBasePath)
-
-	// Проверяем существование файла
-	if _, err := os.Stat(finalPath); os.IsNotExist(err) {
-		log.Printf("File does not exist: %s (original: %s)", finalPath, filePath)
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Config file not found: %s", finalPath)})
+	// Если все еще пустой, возвращаем ошибку
+	if minioObjectName == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No MinIO object name found for this version"})
 		return
 	}
 
-	content, err := os.ReadFile(finalPath)
+	// Подключаемся к MinIO
+	minioClient, err := storage.NewMinIOImprovedClient()
 	if err != nil {
-		log.Printf("Error reading file %s (original: %s): %v", finalPath, filePath, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to read config file: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to connect to MinIO: %v", err)})
+		return
+	}
+
+	content, err := minioClient.DownloadConfig(c.Request.Context(), minioObjectName)
+	if err != nil {
+		log.Printf("Failed to download config %s from MinIO: %v", minioObjectName, err)
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Config file not found in MinIO: %s", minioObjectName)})
 		return
 	}
 
@@ -303,7 +292,7 @@ type DiffResult struct {
 	Lines          []DiffLine `json:"lines"`
 }
 
-// GetVersionDiff возвращает diff между двумя версиями
+// GetVersionDiff возвращает diff между двумя версиями из MinIO
 func getVersionDiff(c *gin.Context) {
 	id1Param := c.Param("id1")
 	id2Param := c.Param("id2")
@@ -327,77 +316,58 @@ func getVersionDiff(c *gin.Context) {
 	}
 	defer db.Close()
 
-	// Получаем пути к файлам
+	// Получаем имена объектов в MinIO
+	var minioObjectName1, minioObjectName2 string
 	var filePath1, filePath2 string
-	err = db.QueryRow("SELECT file_path FROM config_versions WHERE id = ?", id1).Scan(&filePath1)
+
+	err = db.QueryRow("SELECT minio_object_name, file_path FROM config_versions WHERE id = ?", id1).Scan(&minioObjectName1, &filePath1)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Version 1 not found"})
 		return
 	}
 
-	err = db.QueryRow("SELECT file_path FROM config_versions WHERE id = ?", id2).Scan(&filePath2)
+	err = db.QueryRow("SELECT minio_object_name, file_path FROM config_versions WHERE id = ?", id2).Scan(&minioObjectName2, &filePath2)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Version 2 not found"})
 		return
 	}
 
-	// Получаем базовый путь к архиву
-	archiveBasePath := getEnv("ARCHIVE_BASE_PATH", "/app/archived_configs")
-
-	// Нормализуем пути
-	normalizePath := func(path string) string {
-		// Если путь абсолютный и уже начинается с правильного базового пути, используем как есть
-		if filepath.IsAbs(path) && strings.HasPrefix(path, archiveBasePath) {
-			return filepath.Clean(path)
-		}
-
-		// Если путь абсолютный, но с другим префиксом, извлекаем относительную часть
-		if filepath.IsAbs(path) {
-			if strings.Contains(path, "archived_configs") {
-				parts := strings.SplitN(path, "archived_configs", 2)
-				if len(parts) > 1 {
-					relPath := strings.TrimPrefix(parts[1], "/")
-					return filepath.Clean(filepath.Join(archiveBasePath, relPath))
-				}
-			}
-			// Если не нашли archived_configs, пробуем использовать как относительный
-			return filepath.Clean(filepath.Join(archiveBasePath, filepath.Base(path)))
-		}
-
-		// Если путь относительный, добавляем базовый путь
-		return filepath.Clean(filepath.Join(archiveBasePath, path))
+	// Если minio_object_name пуст, пробуем конвертировать старый путь
+	if minioObjectName1 == "" && filePath1 != "" {
+		minioObjectName1 = strings.TrimPrefix(filePath1, "configs/")
+	}
+	if minioObjectName2 == "" && filePath2 != "" {
+		minioObjectName2 = strings.TrimPrefix(filePath2, "configs/")
 	}
 
-	finalPath1 := normalizePath(filePath1)
-	finalPath2 := normalizePath(filePath2)
-
-	log.Printf("Reading diff files: path1='%s' (original: '%s'), path2='%s' (original: '%s')",
-		finalPath1, filePath1, finalPath2, filePath2)
-
-	// Проверяем существование файлов
-	if _, err := os.Stat(finalPath1); os.IsNotExist(err) {
-		log.Printf("File 1 does not exist: %s (original: %s)", finalPath1, filePath1)
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Config file 1 not found: %s", finalPath1)})
+	// Если все еще пустые, возвращаем ошибку
+	if minioObjectName1 == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No MinIO object name found for version 1"})
+		return
+	}
+	if minioObjectName2 == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No MinIO object name found for version 2"})
 		return
 	}
 
-	if _, err := os.Stat(finalPath2); os.IsNotExist(err) {
-		log.Printf("File 2 does not exist: %s (original: %s)", finalPath2, filePath2)
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Config file 2 not found: %s", finalPath2)})
-		return
-	}
-
-	content1, err := os.ReadFile(finalPath1)
+	// Подключаемся к MinIO
+	minioClient, err := storage.NewMinIOImprovedClient()
 	if err != nil {
-		log.Printf("Error reading file %s (original: %s): %v", finalPath1, filePath1, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to read config file 1: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to connect to MinIO: %v", err)})
 		return
 	}
 
-	content2, err := os.ReadFile(finalPath2)
+	log.Printf("Reading diff from MinIO: object1='%s', object2='%s'", minioObjectName1, minioObjectName2)
+
+	content1, err := minioClient.DownloadConfig(c.Request.Context(), minioObjectName1)
 	if err != nil {
-		log.Printf("Error reading file %s (original: %s): %v", finalPath2, filePath2, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to read config file 2: %v", err)})
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Failed to download config 1 from MinIO: %v", err)})
+		return
+	}
+
+	content2, err := minioClient.DownloadConfig(c.Request.Context(), minioObjectName2)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Failed to download config 2 from MinIO: %v", err)})
 		return
 	}
 
@@ -426,7 +396,8 @@ func computeDiff(text1, text2 string) []DiffLine {
 
 	// Конвертируем в наш формат DiffLine
 	var result []DiffLine
-	lineNum := 1
+	leftLineNum := 1
+	rightLineNum := 1
 
 	for _, diff := range diffs {
 		lines := strings.Split(diff.Text, "\n")
@@ -442,13 +413,22 @@ func computeDiff(text1, text2 string) []DiffLine {
 			}
 
 			var diffType string
+			var lineNum int
+
 			switch diff.Type {
 			case diffmatchpatch.DiffInsert:
 				diffType = "added"
+				lineNum = rightLineNum
+				rightLineNum++
 			case diffmatchpatch.DiffDelete:
 				diffType = "removed"
+				lineNum = leftLineNum
+				leftLineNum++
 			case diffmatchpatch.DiffEqual:
 				diffType = "unchanged"
+				lineNum = leftLineNum // для unchanged номера одинаковые
+				leftLineNum++
+				rightLineNum++
 			}
 
 			result = append(result, DiffLine{
@@ -456,11 +436,6 @@ func computeDiff(text1, text2 string) []DiffLine {
 				Content: line,
 				LineNum: lineNum,
 			})
-
-			// Увеличиваем номер строки только для unchanged и added строк
-			if diff.Type != diffmatchpatch.DiffDelete {
-				lineNum++
-			}
 		}
 	}
 

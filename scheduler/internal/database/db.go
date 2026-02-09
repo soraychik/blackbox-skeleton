@@ -115,7 +115,7 @@ func (db *DB) GetLatestVersion(deviceID int) (*models.ConfigVersion, error) {
 	return &version, nil
 }
 
-// SaveVersion сохраняет новую версию конфига
+// SaveVersion сохраняет новую версию конфига (legacy)
 func (db *DB) SaveVersion(deviceID int, filePath, fileHash string, versionDate time.Time) error {
 	_, err := db.connection.Exec(`
         INSERT INTO config_versions (device_id, version_date, file_path, file_hash) 
@@ -127,6 +127,161 @@ func (db *DB) SaveVersion(deviceID int, filePath, fileHash string, versionDate t
 	}
 
 	log.Printf("Saved new version for device ID %d: %s", deviceID, filePath)
+	return nil
+}
+
+// SaveFullVersion сохраняет полную версию конфигурации
+func (db *DB) SaveFullVersion(deviceID int, minioObjectName, fileHash string, versionDate time.Time, storageType string, originalSize, compressedSize int64) (*models.ConfigVersion, error) {
+	result, err := db.connection.Exec(`
+        INSERT INTO config_versions (device_id, version_date, file_path, file_hash, storage_type, minio_object_name, diff_size_bytes) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		deviceID, versionDate, minioObjectName, fileHash, storageType, minioObjectName, int(compressedSize),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save full version: %v", err)
+	}
+
+	id, _ := result.LastInsertId()
+
+	// Сохраняем информацию о снапшоте
+	_, err = db.connection.Exec(`
+        INSERT INTO storage_snapshots (device_id, version_id, snapshot_type, minio_object_name, file_size_bytes, compressed_size_bytes) 
+        VALUES (?, ?, ?, ?, ?, ?)`,
+		deviceID, id, storageType, minioObjectName, originalSize, compressedSize,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save snapshot info: %v", err)
+	}
+
+	version := &models.ConfigVersion{
+		ID:              int(id),
+		DeviceID:        deviceID,
+		VersionDate:     versionDate,
+		FilePath:        minioObjectName,
+		FileHash:        fileHash,
+		StorageType:     storageType,
+		ParentVersionID: nil,
+		MinioObjectName: minioObjectName,
+		DiffSizeBytes:   int(compressedSize),
+		CreatedAt:       time.Now(),
+	}
+
+	log.Printf("Saved new full version for device ID %d: %s (storage: %s)", deviceID, minioObjectName, storageType)
+	return version, nil
+}
+
+// SaveDiffVersion сохраняет diff версию конфигурации
+func (db *DB) SaveDiffVersion(deviceID int, minioObjectName, fileHash string, versionDate time.Time, parentVersionID int, diffSizeBytes int64) (*models.ConfigVersion, error) {
+	result, err := db.connection.Exec(`
+        INSERT INTO config_versions (device_id, version_date, file_path, file_hash, storage_type, parent_version_id, minio_object_name, diff_size_bytes) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		deviceID, versionDate, minioObjectName, fileHash, "diff", parentVersionID, minioObjectName, diffSizeBytes,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save diff version: %v", err)
+	}
+
+	id, _ := result.LastInsertId()
+
+	version := &models.ConfigVersion{
+		ID:              int(id),
+		DeviceID:        deviceID,
+		VersionDate:     versionDate,
+		FilePath:        minioObjectName,
+		FileHash:        fileHash,
+		StorageType:     "diff",
+		ParentVersionID: &parentVersionID,
+		MinioObjectName: minioObjectName,
+		DiffSizeBytes:   int(diffSizeBytes),
+		CreatedAt:       time.Now(),
+	}
+
+	log.Printf("Saved new diff version for device ID %d: %s (parent: %d)", deviceID, minioObjectName, parentVersionID)
+	return version, nil
+}
+
+// GetVersionByID получает версию по ID
+func (db *DB) GetVersionByID(versionID int) (*models.ConfigVersion, error) {
+	var version models.ConfigVersion
+	var parentVersionID sql.NullInt32
+
+	err := db.connection.QueryRow(`
+        SELECT id, device_id, version_date, file_path, file_hash, storage_type, parent_version_id, minio_object_name, diff_size_bytes, created_at 
+        FROM config_versions 
+        WHERE id = ?`,
+		versionID,
+	).Scan(&version.ID, &version.DeviceID, &version.VersionDate, &version.FilePath, &version.FileHash,
+		&version.StorageType, &parentVersionID, &version.MinioObjectName, &version.DiffSizeBytes, &version.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to get version by ID: %v", err)
+	}
+
+	if parentVersionID.Valid {
+		pid := int(parentVersionID.Int32)
+		version.ParentVersionID = &pid
+	}
+
+	return &version, nil
+}
+
+// GetAllVersionsForMigration получает все версии для миграции
+func (db *DB) GetAllVersionsForMigration() ([]models.ConfigVersion, error) {
+	rows, err := db.connection.Query(`
+		SELECT id, device_id, version_date, file_path, file_hash, created_at 
+		FROM config_versions 
+		WHERE storage_type IS NULL OR storage_type = 'full' 
+		ORDER BY device_id, version_date ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query versions for migration: %v", err)
+	}
+	defer rows.Close()
+
+	var versions []models.ConfigVersion
+	for rows.Next() {
+		var version models.ConfigVersion
+
+		err := rows.Scan(&version.ID, &version.DeviceID, &version.VersionDate,
+			&version.FilePath, &version.FileHash, &version.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan version: %v", err)
+		}
+
+		versions = append(versions, version)
+	}
+
+	return versions, nil
+}
+
+// UpdateVersionForMigration обновляет версию после миграции
+func (db *DB) UpdateVersionForMigration(versionID int, minioObjectName, storageType string, originalSize, compressedSize int64) error {
+	_, err := db.connection.Exec(`
+		UPDATE config_versions 
+		SET storage_type = ?, minio_object_name = ?, diff_size_bytes = ?
+		WHERE id = ?`,
+		storageType, minioObjectName, compressedSize, versionID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update version for migration: %v", err)
+	}
+
+	return nil
+}
+
+// CreateStorageSnapshot создает запись в storage_snapshots
+func (db *DB) CreateStorageSnapshot(deviceID, versionID int, snapshotType, minioObjectName string, fileSize, compressedSize int64) error {
+	_, err := db.connection.Exec(`
+		INSERT INTO storage_snapshots (device_id, version_id, snapshot_type, minio_object_name, file_size_bytes, compressed_size_bytes) 
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		deviceID, versionID, snapshotType, minioObjectName, fileSize, compressedSize,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create storage snapshot: %v", err)
+	}
+
 	return nil
 }
 

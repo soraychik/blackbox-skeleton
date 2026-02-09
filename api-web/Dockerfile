@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
@@ -7,9 +7,17 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 # Копируем исходный код
-COPY *.go ./
+COPY . .
 
 # Собираем приложение
-RUN go build -o /api-web
+RUN CGO_ENABLED=0 GOOS=linux go build -o api-web .
+
+# Используем scratch image для финального образа
+FROM scratch
+
+WORKDIR /
+
+# Копируем бинарник из builder stage
+COPY --from=0 /app/api-web .
 
 CMD [ "/api-web" ]

@@ -3,13 +3,16 @@ package main
 import (
 	"blackbox-scheduler/internal/database"
 	"blackbox-scheduler/internal/fileprocessor"
+	"context"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"time"
 )
 
 func main() {
-	log.Println("Starting BlackBox Scheduler...")
+	log.Println("Starting BlackBox Scheduler with Improved Storage Architecture...")
 
 	// Ждём пока MySQL запустится
 	if err := waitForMySQL(); err != nil {
@@ -23,12 +26,22 @@ func main() {
 	}
 	defer db.Close()
 
-	// Создаём процессор файлов
-	processor := fileprocessor.NewFileProcessor("/app/archived_configs")
+	// Определяем настройки хранения
+	useMinIO := os.Getenv("USE_MINIO") == "true"
+	diffThreshold := getEnvFloat("DIFF_THRESHOLD", 0.1)
+
+	log.Printf("Storage configuration: MinIO=%t, DiffThreshold=%.2f", useMinIO, diffThreshold)
+
+	// Создаём улучшенный процессор файлов
+	processor, err := fileprocessor.NewImprovedFileProcessor(useMinIO, diffThreshold)
+	if err != nil {
+		log.Fatalf("Failed to create improved file processor: %v", err)
+	}
+	defer processor.Close()
 
 	// Сразу обрабатываем файлы при запуске
 	log.Println("Performing initial file scan...")
-	processFiles(db, processor)
+	processFilesImproved(db, processor)
 
 	// Бесконечный цикл с периодической проверкой каждые 30 секунд
 	ticker := time.NewTicker(30 * time.Second)
@@ -38,12 +51,21 @@ func main() {
 
 	for range ticker.C {
 		log.Println("Checking for new config files...")
-		processFiles(db, processor)
+		processFilesImproved(db, processor)
 		log.Println("File processing cycle completed")
 	}
 }
 
 // waitForMySQL ждёт пока MySQL станет доступен
+func getEnvFloat(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		if parsed, err := strconv.ParseFloat(value, 64); err == nil {
+			return parsed
+		}
+	}
+	return defaultValue
+}
+
 func waitForMySQL() error {
 	log.Println("Waiting for MySQL to be ready...")
 
@@ -63,8 +85,8 @@ func waitForMySQL() error {
 	return fmt.Errorf("MySQL did not become ready after %d attempts", maxAttempts)
 }
 
-// processFiles обрабатывает все файлы в директории
-func processFiles(db *database.DB, processor *fileprocessor.FileProcessor) {
+// processFilesImproved обрабатывает все файлы с улучшенной архитектурой
+func processFilesImproved(db *database.DB, processor *fileprocessor.ImprovedFileProcessor) {
 	files, err := processor.GetFilesInDirectory("/app/configs")
 	if err != nil {
 		log.Printf("Error reading source directory: %v", err)
@@ -79,14 +101,14 @@ func processFiles(db *database.DB, processor *fileprocessor.FileProcessor) {
 	log.Printf("Found %d config file(s)", len(files))
 
 	for _, filePath := range files {
-		if err := processSingleFile(db, processor, filePath); err != nil {
+		if err := processSingleFileImproved(db, processor, filePath); err != nil {
 			log.Printf("Error processing file %s: %v", filePath, err)
 		}
 	}
 }
 
-// processSingleFile обрабатывает один файл конфига
-func processSingleFile(db *database.DB, processor *fileprocessor.FileProcessor, filePath string) error {
+// processSingleFileImproved обрабатывает один файл с улучшенной архитектурой
+func processSingleFileImproved(db *database.DB, processor *fileprocessor.ImprovedFileProcessor, filePath string) error {
 	log.Printf("Processing file: %s", filePath)
 
 	fileInfo, err := processor.ProcessFile(filePath)
@@ -102,27 +124,11 @@ func processSingleFile(db *database.DB, processor *fileprocessor.FileProcessor, 
 		return err
 	}
 
-	latestVersion, err := db.GetLatestVersion(device.ID)
+	_, err = processor.SaveVersion(context.Background(), db, fileInfo, device.ID)
 	if err != nil {
 		return err
 	}
 
-	if latestVersion == nil || latestVersion.FileHash != fileInfo.Hash {
-		log.Printf("New or changed config detected for %s", fileInfo.Name)
-
-		archivePath, err := processor.SaveToArchive(fileInfo, device.ID)
-		if err != nil {
-			return err
-		}
-
-		if err := db.SaveVersion(device.ID, archivePath, fileInfo.Hash, fileInfo.ModTime); err != nil {
-			return err
-		}
-
-		log.Printf("Successfully processed new version for %s", fileInfo.Name)
-	} else {
-		log.Printf("No changes detected for %s", fileInfo.Name)
-	}
-
+	log.Printf("Successfully processed version for %s", fileInfo.Name)
 	return nil
 }

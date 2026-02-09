@@ -67,17 +67,19 @@ const ChangesTab = () => {
   const prepareSynchronizedDiffLines = (lines) => {
     const leftLines = [];
     const rightLines = [];
+    let leftLineNum = 1;
+    let rightLineNum = 1;
     
-    lines.forEach((line) => {
+    lines.forEach((line, index) => {
       if (line.type === 'unchanged') {
-        leftLines.push({ ...line, side: 'left' });
-        rightLines.push({ ...line, side: 'right' });
+        leftLines.push({ ...line, side: 'left', line_num: leftLineNum++ });
+        rightLines.push({ ...line, side: 'right', line_num: rightLineNum++ });
       } else if (line.type === 'removed') {
-        leftLines.push({ ...line, side: 'left' });
+        leftLines.push({ ...line, side: 'left', line_num: leftLineNum++ });
         rightLines.push({ type: 'empty', side: 'right', content: '', line_num: '' });
       } else if (line.type === 'added') {
         leftLines.push({ type: 'empty', side: 'left', content: '', line_num: '' });
-        rightLines.push({ ...line, side: 'right' });
+        rightLines.push({ ...line, side: 'right', line_num: rightLineNum++ });
       }
     });
     
@@ -87,7 +89,7 @@ const ChangesTab = () => {
   const renderDiffLine = (line, index) => {
     if (line.type === 'empty') {
       return (
-        <div key={index} className="diff-line diff-line-empty">
+        <div key={`empty-${index}`} className="diff-line diff-line-empty">
           <span className="diff-line-number"></span>
           <span className="diff-line-content"></span>
         </div>
@@ -96,11 +98,14 @@ const ChangesTab = () => {
     
     const className = `diff-line diff-line-${line.type}`;
     const lineNum = line.line_num || '';
+    const content = line.content || '';
     
     return (
-      <div key={index} className={className}>
+      <div key={`${line.type}-${index}-${lineNum}`} className={className}>
         <span className="diff-line-number">{lineNum}</span>
-        <span className="diff-line-content">{line.content || ' '}</span>
+        <span className="diff-line-content">
+          {content === '' ? '\u00A0' : content}
+        </span>
       </div>
     );
   };

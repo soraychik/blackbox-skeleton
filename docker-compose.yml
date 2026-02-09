@@ -21,15 +21,45 @@ services:
       retries: 10
       start_period: 30s
 
+  minio:
+    image: minio/minio:latest
+    container_name: blackbox-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - minio_data:/data
+    networks:
+      - blackbox-net
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
   scheduler:
     build: ./scheduler
     container_name: blackbox-scheduler
     restart: unless-stopped
     volumes:
       - ./scheduler/configs:/app/configs
-      - ./storage/archived_configs:/app/archived_configs
+    environment:
+      - USE_MINIO=true
+      - DIFF_THRESHOLD=0.5
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - MINIO_BUCKET_NAME=blackbox-configs
+      - MINIO_USE_SSL=false
     depends_on:
       mysql-db:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     networks:
       - blackbox-net
@@ -40,12 +70,18 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
-    volumes:
-      - ./storage/archived_configs:/app/archived_configs
+    volumes: []
     environment:
-      - ARCHIVE_BASE_PATH=/app/archived_configs
+      - USE_MINIO=true
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - MINIO_BUCKET_NAME=blackbox-configs
+      - MINIO_USE_SSL=false
     depends_on:
       mysql-db:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     networks:
       - blackbox-net
@@ -66,6 +102,7 @@ services:
 
 volumes:
   mysql_data:
+  minio_data:
 
 networks:
   blackbox-net:
