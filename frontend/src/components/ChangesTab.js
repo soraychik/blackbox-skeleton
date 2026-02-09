@@ -64,7 +64,36 @@ const ChangesTab = () => {
     return versions.find(v => v.id === parseInt(versionId));
   };
 
-  const renderDiffLine = (line, index, side) => {
+  const prepareSynchronizedDiffLines = (lines) => {
+    const leftLines = [];
+    const rightLines = [];
+    
+    lines.forEach((line) => {
+      if (line.type === 'unchanged') {
+        leftLines.push({ ...line, side: 'left' });
+        rightLines.push({ ...line, side: 'right' });
+      } else if (line.type === 'removed') {
+        leftLines.push({ ...line, side: 'left' });
+        rightLines.push({ type: 'empty', side: 'right', content: '', line_num: '' });
+      } else if (line.type === 'added') {
+        leftLines.push({ type: 'empty', side: 'left', content: '', line_num: '' });
+        rightLines.push({ ...line, side: 'right' });
+      }
+    });
+    
+    return { leftLines, rightLines };
+  };
+
+  const renderDiffLine = (line, index) => {
+    if (line.type === 'empty') {
+      return (
+        <div key={index} className="diff-line diff-line-empty">
+          <span className="diff-line-number"></span>
+          <span className="diff-line-content"></span>
+        </div>
+      );
+    }
+    
     const className = `diff-line diff-line-${line.type}`;
     const lineNum = line.line_num || '';
     
@@ -170,64 +199,42 @@ const ChangesTab = () => {
         </div>
       )}
 
-      {diffData && (
-        <div className="diff-container">
-          <div className="diff-header">
-            <div className="diff-header-left">
-              <h3>Версия {diffData.left_version_id}</h3>
-              {version1Info && (
-                <small>{version1Info.device_name} - {formatDateTime(version1Info.version_date)}</small>
-              )}
-            </div>
-            <div className="diff-header-right">
-              <h3>Версия {diffData.right_version_id}</h3>
-              {version2Info && (
-                <small>{version2Info.device_name} - {formatDateTime(version2Info.version_date)}</small>
-              )}
-            </div>
-          </div>
-
-          <div className="diff-content">
-            <div className="diff-side diff-side-left">
-              <div className="diff-lines">
-                {diffData.lines.map((line, index) => {
-                  if (line.type === 'removed' || line.type === 'unchanged') {
-                    return renderDiffLine(line, index, 'left');
-                  } else if (line.type === 'added') {
-                    // Показываем пустую строку для добавленных в левой стороне
-                    return (
-                      <div key={index} className="diff-line diff-line-empty">
-                        <span className="diff-line-number"></span>
-                        <span className="diff-line-content"></span>
-                      </div>
-                    );
-                  }
-                  return null;
-                })}
+      {diffData && (() => {
+        const { leftLines, rightLines } = prepareSynchronizedDiffLines(diffData.lines);
+        
+        return (
+          <div className="diff-container">
+            <div className="diff-header">
+              <div className="diff-header-left">
+                <h3>Версия {diffData.left_version_id}</h3>
+                {version1Info && (
+                  <small>{version1Info.device_name} - {formatDateTime(version1Info.version_date)}</small>
+                )}
+              </div>
+              <div className="diff-header-right">
+                <h3>Версия {diffData.right_version_id}</h3>
+                {version2Info && (
+                  <small>{version2Info.device_name} - {formatDateTime(version2Info.version_date)}</small>
+                )}
               </div>
             </div>
 
-            <div className="diff-side diff-side-right">
-              <div className="diff-lines">
-                {diffData.lines.map((line, index) => {
-                  if (line.type === 'added' || line.type === 'unchanged') {
-                    return renderDiffLine(line, index, 'right');
-                  } else if (line.type === 'removed') {
-                    // Показываем пустую строку для удаленных в правой стороне
-                    return (
-                      <div key={index} className="diff-line diff-line-empty">
-                        <span className="diff-line-number"></span>
-                        <span className="diff-line-content"></span>
-                      </div>
-                    );
-                  }
-                  return null;
-                })}
+            <div className="diff-content">
+              <div className="diff-side diff-side-left">
+                <div className="diff-lines">
+                  {leftLines.map((line, index) => renderDiffLine(line, index))}
+                </div>
+              </div>
+
+              <div className="diff-side diff-side-right">
+                <div className="diff-lines">
+                  {rightLines.map((line, index) => renderDiffLine(line, index))}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };
