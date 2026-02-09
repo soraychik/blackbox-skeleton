@@ -1,0 +1,247 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { getVersions, getVersionDiff } from '../utils/api';
+import { formatDateTime } from '../utils/dateFormatter';
+import './ChangesTab.css';
+
+const ChangesTab = () => {
+  const [versions, setVersions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selectedVersion1, setSelectedVersion1] = useState(null);
+  const [selectedVersion2, setSelectedVersion2] = useState(null);
+  const [diffData, setDiffData] = useState(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [diffError, setDiffError] = useState(null);
+
+  const loadVersions = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await getVersions();
+      setVersions(data);
+    } catch (err) {
+      const errorMessage = err.response 
+        ? `Ошибка ${err.response.status}: ${err.response.data?.error || err.message}`
+        : err.message || 'Не удалось подключиться к серверу. Проверьте, что API сервер запущен.';
+      setError('Ошибка при загрузке данных: ' + errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadVersions();
+  }, [loadVersions]);
+
+  const handleCompare = async () => {
+    if (!selectedVersion1 || !selectedVersion2) {
+      setDiffError('Выберите обе версии для сравнения');
+      return;
+    }
+
+    if (selectedVersion1 === selectedVersion2) {
+      setDiffError('Выберите разные версии для сравнения');
+      return;
+    }
+
+    try {
+      setDiffLoading(true);
+      setDiffError(null);
+      const diff = await getVersionDiff(selectedVersion1, selectedVersion2);
+      setDiffData(diff);
+    } catch (err) {
+      const errorMessage = err.response 
+        ? `Ошибка ${err.response.status}: ${err.response.data?.error || err.message}`
+        : err.message || 'Не удалось получить diff';
+      setDiffError('Ошибка при получении diff: ' + errorMessage);
+      setDiffData(null);
+    } finally {
+      setDiffLoading(false);
+    }
+  };
+
+  const getVersionInfo = (versionId) => {
+    return versions.find(v => v.id === parseInt(versionId));
+  };
+
+  const prepareSynchronizedDiffLines = (lines) => {
+    const leftLines = [];
+    const rightLines = [];
+    let leftLineNum = 1;
+    let rightLineNum = 1;
+    
+    lines.forEach((line, index) => {
+      if (line.type === 'unchanged') {
+        leftLines.push({ ...line, side: 'left', line_num: leftLineNum++ });
+        rightLines.push({ ...line, side: 'right', line_num: rightLineNum++ });
+      } else if (line.type === 'removed') {
+        leftLines.push({ ...line, side: 'left', line_num: leftLineNum++ });
+        rightLines.push({ type: 'empty', side: 'right', content: '', line_num: '' });
+      } else if (line.type === 'added') {
+        leftLines.push({ type: 'empty', side: 'left', content: '', line_num: '' });
+        rightLines.push({ ...line, side: 'right', line_num: rightLineNum++ });
+      }
+    });
+    
+    return { leftLines, rightLines };
+  };
+
+  const renderDiffLine = (line, index) => {
+    if (line.type === 'empty') {
+      return (
+        <div key={`empty-${index}`} className="diff-line diff-line-empty">
+          <span className="diff-line-number"></span>
+          <span className="diff-line-content"></span>
+        </div>
+      );
+    }
+    
+    const className = `diff-line diff-line-${line.type}`;
+    const lineNum = line.line_num || '';
+    const content = line.content || '';
+    
+    return (
+      <div key={`${line.type}-${index}-${lineNum}`} className={className}>
+        <span className="diff-line-number">{lineNum}</span>
+        <span className="diff-line-content">
+          {content === '' ? '\u00A0' : content}
+        </span>
+      </div>
+    );
+  };
+
+  if (loading) {
+    return <div className="loading">Загрузка версий...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="error">
+        <p>{error}</p>
+        <button onClick={loadVersions} style={{ marginTop: '10px', padding: '8px 16px', cursor: 'pointer' }}>
+          Повторить
+        </button>
+      </div>
+    );
+  }
+
+  const version1Info = selectedVersion1 ? getVersionInfo(selectedVersion1) : null;
+  const version2Info = selectedVersion2 ? getVersionInfo(selectedVersion2) : null;
+
+  return (
+    <div className="changes-container">
+      <div className="changes-header">
+        <h2>Сравнение версий конфигов</h2>
+      </div>
+
+      <div className="version-selectors">
+        <div className="version-selector">
+          <label htmlFor="version1">Версия 1 (левая):</label>
+          <select
+            id="version1"
+            value={selectedVersion1 || ''}
+            onChange={(e) => setSelectedVersion1(e.target.value)}
+            className="version-select"
+          >
+            <option value="">Выберите версию...</option>
+            {versions.map((version) => (
+              <option key={version.id} value={version.id}>
+                {version.device_name} - {formatDateTime(version.version_date)}
+              </option>
+            ))}
+          </select>
+          {version1Info && (
+            <div className="version-info">
+              <small>
+                {version1Info.device_name} | 
+                Изменено: {formatDateTime(version1Info.version_date)} | 
+                Создано: {formatDateTime(version1Info.created_at)}
+              </small>
+            </div>
+          )}
+        </div>
+
+        <div className="version-selector">
+          <label htmlFor="version2">Версия 2 (правая):</label>
+          <select
+            id="version2"
+            value={selectedVersion2 || ''}
+            onChange={(e) => setSelectedVersion2(e.target.value)}
+            className="version-select"
+          >
+            <option value="">Выберите версию...</option>
+            {versions.map((version) => (
+              <option key={version.id} value={version.id}>
+                {version.device_name} - {formatDateTime(version.version_date)}
+              </option>
+            ))}
+          </select>
+          {version2Info && (
+            <div className="version-info">
+              <small>
+                {version2Info.device_name} | 
+                Изменено: {formatDateTime(version2Info.version_date)} | 
+                Создано: {formatDateTime(version2Info.created_at)}
+              </small>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="compare-button-container">
+        <button
+          onClick={handleCompare}
+          disabled={!selectedVersion1 || !selectedVersion2 || diffLoading}
+          className="compare-button"
+        >
+          {diffLoading ? 'Сравнение...' : 'Сравнить версии'}
+        </button>
+      </div>
+
+      {diffError && (
+        <div className="error" style={{ marginTop: '20px' }}>
+          {diffError}
+        </div>
+      )}
+
+      {diffData && (() => {
+        const { leftLines, rightLines } = prepareSynchronizedDiffLines(diffData.lines);
+        
+        return (
+          <div className="diff-container">
+            <div className="diff-header">
+              <div className="diff-header-left">
+                <h3>Версия {diffData.left_version_id}</h3>
+                {version1Info && (
+                  <small>{version1Info.device_name} - {formatDateTime(version1Info.version_date)}</small>
+                )}
+              </div>
+              <div className="diff-header-right">
+                <h3>Версия {diffData.right_version_id}</h3>
+                {version2Info && (
+                  <small>{version2Info.device_name} - {formatDateTime(version2Info.version_date)}</small>
+                )}
+              </div>
+            </div>
+
+            <div className="diff-content">
+              <div className="diff-side diff-side-left">
+                <div className="diff-lines">
+                  {leftLines.map((line, index) => renderDiffLine(line, index))}
+                </div>
+              </div>
+
+              <div className="diff-side diff-side-right">
+                <div className="diff-lines">
+                  {rightLines.map((line, index) => renderDiffLine(line, index))}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+};
+
+export default ChangesTab;

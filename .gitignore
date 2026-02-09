@@ -10,3 +10,26 @@ scheduler/configs/*
 
 # Игнорируем логи
 *.log
+
+# Frontend
+frontend/node_modules/
+frontend/build/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# Go binaries
+api-web/api-web
+scheduler/scheduler
+
+# Temporary files
+*_backup_*.tar.gz
+clear_*.sql
+clear_*.sh
+create_*.go
+test_*.go
+clear_database.sh

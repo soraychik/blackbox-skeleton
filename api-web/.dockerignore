@@ -1,0 +1,14 @@
+api-web
+blackbox-api
+scheduler
+*.log
+.env
+.git
+.gitignore
+README.md
+../storage/
+frontend/
+scheduler/configs/
+.DS_Store
+.vscode/
+node_modules/

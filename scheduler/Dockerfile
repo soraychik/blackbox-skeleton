@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
@@ -10,6 +10,14 @@ RUN go mod download
 COPY . .
 
 # Собираем приложение
-RUN go build -o /scheduler
+RUN CGO_ENABLED=0 GOOS=linux go build -o scheduler .
+
+# Используем scratch image для финального образа
+FROM scratch
+
+WORKDIR /
+
+# Копируем бинарник из builder stage
+COPY --from=0 /app/scheduler .
 
 CMD [ "/scheduler" ]

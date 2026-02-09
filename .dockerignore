@@ -1,0 +1,14 @@
+.git
+.gitignore
+README.md
+STORAGE_ARCHITECTURE.md
+DEPLOYMENT_GUIDE.md
+storage/
+frontend/
+scheduler/configs/
+*.log
+.DS_Store
+.vscode/
+node_modules/
+.api-web/
+.scheduler/

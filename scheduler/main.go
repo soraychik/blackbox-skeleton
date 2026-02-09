@@ -3,62 +3,69 @@ package main
 import (
 	"blackbox-scheduler/internal/database"
 	"blackbox-scheduler/internal/fileprocessor"
+	"context"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"time"
 )
 
 func main() {
-	log.Println("Starting BlackBox Scheduler...")
+	log.Println("Starting BlackBox Scheduler with Improved Storage Architecture...")
 
-	// 1. Ждём пока MySQL запустится
+	// Ждём пока MySQL запустится
 	if err := waitForMySQL(); err != nil {
 		log.Fatalf("Failed to wait for MySQL: %v", err)
 	}
 
-	// 2. Подключаемся к БД
+	// Подключаемся к БД
 	db, err := database.NewDB()
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
 
-	// 3. Создаём процессор файлов
-	processor := fileprocessor.NewFileProcessor("/app/archived_configs")
+	// Определяем настройки хранения
+	useMinIO := os.Getenv("USE_MINIO") == "true"
+	diffThreshold := getEnvFloat("DIFF_THRESHOLD", 0.1)
 
-	// 4. Бесконечный цикл с периодической проверкой
-	ticker := time.NewTicker(1 * time.Minute)
+	log.Printf("Storage configuration: MinIO=%t, DiffThreshold=%.2f", useMinIO, diffThreshold)
+
+	// Создаём улучшенный процессор файлов
+	processor, err := fileprocessor.NewImprovedFileProcessor(useMinIO, diffThreshold)
+	if err != nil {
+		log.Fatalf("Failed to create improved file processor: %v", err)
+	}
+	defer processor.Close()
+
+	// Сразу обрабатываем файлы при запуске
+	log.Println("Performing initial file scan...")
+	processFilesImproved(db, processor)
+
+	// Бесконечный цикл с периодической проверкой каждые 30 секунд
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	log.Println("Scheduler started. Monitoring for new config files...")
+	log.Println("Scheduler started. Monitoring for new config files every 30 seconds...")
 
 	for range ticker.C {
 		log.Println("Checking for new config files...")
-
-		files, err := processor.GetFilesInDirectory("/app/configs")
-		if err != nil {
-			log.Printf("Error reading source directory: %v", err)
-			continue
-		}
-
-		if len(files) == 0 {
-			log.Println("No config files found")
-			continue
-		}
-
-		log.Printf("Found %d config file(s)", len(files))
-
-		for _, filePath := range files {
-			if err := processSingleFile(db, processor, filePath); err != nil {
-				log.Printf("Error processing file %s: %v", filePath, err)
-			}
-		}
-
+		processFilesImproved(db, processor)
 		log.Println("File processing cycle completed")
 	}
 }
 
 // waitForMySQL ждёт пока MySQL станет доступен
+func getEnvFloat(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		if parsed, err := strconv.ParseFloat(value, 64); err == nil {
+			return parsed
+		}
+	}
+	return defaultValue
+}
+
 func waitForMySQL() error {
 	log.Println("Waiting for MySQL to be ready...")
 
@@ -67,7 +74,7 @@ func waitForMySQL() error {
 		db, err := database.NewDB()
 		if err == nil {
 			db.Close()
-			log.Println("✅ MySQL is ready!")
+			log.Println("MySQL is ready!")
 			return nil
 		}
 
@@ -78,8 +85,30 @@ func waitForMySQL() error {
 	return fmt.Errorf("MySQL did not become ready after %d attempts", maxAttempts)
 }
 
-// processSingleFile обрабатывает один файл конфига
-func processSingleFile(db *database.DB, processor *fileprocessor.FileProcessor, filePath string) error {
+// processFilesImproved обрабатывает все файлы с улучшенной архитектурой
+func processFilesImproved(db *database.DB, processor *fileprocessor.ImprovedFileProcessor) {
+	files, err := processor.GetFilesInDirectory("/app/configs")
+	if err != nil {
+		log.Printf("Error reading source directory: %v", err)
+		return
+	}
+
+	if len(files) == 0 {
+		log.Println("No config files found")
+		return
+	}
+
+	log.Printf("Found %d config file(s)", len(files))
+
+	for _, filePath := range files {
+		if err := processSingleFileImproved(db, processor, filePath); err != nil {
+			log.Printf("Error processing file %s: %v", filePath, err)
+		}
+	}
+}
+
+// processSingleFileImproved обрабатывает один файл с улучшенной архитектурой
+func processSingleFileImproved(db *database.DB, processor *fileprocessor.ImprovedFileProcessor, filePath string) error {
 	log.Printf("Processing file: %s", filePath)
 
 	fileInfo, err := processor.ProcessFile(filePath)
@@ -95,27 +124,11 @@ func processSingleFile(db *database.DB, processor *fileprocessor.FileProcessor, 
 		return err
 	}
 
-	latestVersion, err := db.GetLatestVersion(device.ID)
+	_, err = processor.SaveVersion(context.Background(), db, fileInfo, device.ID)
 	if err != nil {
 		return err
 	}
 
-	if latestVersion == nil || latestVersion.FileHash != fileInfo.Hash {
-		log.Printf("New or changed config detected for %s", fileInfo.Name)
-
-		archivePath, err := processor.SaveToArchive(fileInfo, device.ID)
-		if err != nil {
-			return err
-		}
-
-		if err := db.SaveVersion(device.ID, archivePath, fileInfo.Hash, fileInfo.ModTime); err != nil {
-			return err
-		}
-
-		log.Printf("Successfully processed new version for %s", fileInfo.Name)
-	} else {
-		log.Printf("No changes detected for %s", fileInfo.Name)
-	}
-
+	log.Printf("Successfully processed version for %s", fileInfo.Name)
 	return nil
 }
