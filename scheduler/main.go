@@ -3,7 +3,7 @@ package main
 import (
 	"blackbox-scheduler/internal/database"
 	"blackbox-scheduler/internal/fileprocessor"
-	"context"
+	"blackbox-scheduler/internal/fileserver"
 	"fmt"
 	"log"
 	"os"
@@ -12,17 +12,17 @@ import (
 )
 
 func main() {
-	log.Println("Starting BlackBox Scheduler with Improved Storage Architecture...")
+	log.Println("Запуск BlackBox Scheduler с поддержкой множественных файловых серверов...")
 
 	// Ждём пока MySQL запустится
 	if err := waitForMySQL(); err != nil {
-		log.Fatalf("Failed to wait for MySQL: %v", err)
+		log.Fatalf("Не удалось дождаться запуска MySQL: %v", err)
 	}
 
 	// Подключаемся к БД
 	db, err := database.NewDB()
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		log.Fatalf("Не удалось подключиться к базе данных: %v", err)
 	}
 	defer db.Close()
 
@@ -30,29 +30,52 @@ func main() {
 	useMinIO := os.Getenv("USE_MINIO") == "true"
 	diffThreshold := getEnvFloat("DIFF_THRESHOLD", 0.1)
 
-	log.Printf("Storage configuration: MinIO=%t, DiffThreshold=%.2f", useMinIO, diffThreshold)
+	log.Printf("Конфигурация хранилища: MinIO=%t, ПорогDiff=%.2f", useMinIO, diffThreshold)
 
 	// Создаём улучшенный процессор файлов
 	processor, err := fileprocessor.NewImprovedFileProcessor(useMinIO, diffThreshold)
 	if err != nil {
-		log.Fatalf("Failed to create improved file processor: %v", err)
+		log.Fatalf("Не удалось создать улучшенный файловый процессор: %v", err)
 	}
 	defer processor.Close()
 
+	// Создаем менеджер файловых серверов
+	serverManager := fileserver.NewFileServerManager(processor, db)
+
+	// Загружаем конфигурации серверов
+	if err := serverManager.LoadServers(); err != nil {
+		log.Fatalf("Не удалось загрузить конфигурации файловых серверов: %v", err)
+	}
+
+	// Монтируем все серверы
+	if err := serverManager.MountAllServers(); err != nil {
+		log.Fatalf("Не удалось смонтировать файловые серверы: %v", err)
+	}
+	defer serverManager.Close()
+
 	// Сразу обрабатываем файлы при запуске
-	log.Println("Performing initial file scan...")
-	processFilesImproved(db, processor)
+	log.Println("Выполняем первоначальное сканирование файлов...")
+	serverManager.ProcessAllServers()
 
 	// Бесконечный цикл с периодической проверкой каждые 30 секунд
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	log.Println("Scheduler started. Monitoring for new config files every 30 seconds...")
+	// Тикер для проверки состояния
+	healthTicker := time.NewTicker(60 * time.Second)
+	defer healthTicker.Stop()
 
-	for range ticker.C {
-		log.Println("Checking for new config files...")
-		processFilesImproved(db, processor)
-		log.Println("File processing cycle completed")
+	log.Println("Планировщик запущен. Мониторинг файловых серверов каждые 30 секунд...")
+
+	for {
+		select {
+		case <-ticker.C:
+			log.Println("Проверяем наличие новых конфигурационных файлов...")
+			serverManager.ProcessAllServers()
+			log.Println("Цикл обработки файлов завершен")
+		case <-healthTicker.C:
+			serverManager.CheckHealth()
+		}
 	}
 }
 
@@ -67,68 +90,20 @@ func getEnvFloat(key string, defaultValue float64) float64 {
 }
 
 func waitForMySQL() error {
-	log.Println("Waiting for MySQL to be ready...")
+	log.Println("Ожидание готовности MySQL...")
 
 	maxAttempts := 30
 	for i := 0; i < maxAttempts; i++ {
 		db, err := database.NewDB()
 		if err == nil {
 			db.Close()
-			log.Println("MySQL is ready!")
+			log.Println("MySQL готов к работе!")
 			return nil
 		}
 
-		log.Printf("Attempt %d/%d: MySQL not ready yet, retrying in 2 seconds...", i+1, maxAttempts)
+		log.Printf("Попытка %d/%d: MySQL еще не готов, повторная попытка через 2 секунды...", i+1, maxAttempts)
 		time.Sleep(2 * time.Second)
 	}
 
-	return fmt.Errorf("MySQL did not become ready after %d attempts", maxAttempts)
-}
-
-// processFilesImproved обрабатывает все файлы с улучшенной архитектурой
-func processFilesImproved(db *database.DB, processor *fileprocessor.ImprovedFileProcessor) {
-	files, err := processor.GetFilesInDirectory("/app/configs")
-	if err != nil {
-		log.Printf("Error reading source directory: %v", err)
-		return
-	}
-
-	if len(files) == 0 {
-		log.Println("No config files found")
-		return
-	}
-
-	log.Printf("Found %d config file(s)", len(files))
-
-	for _, filePath := range files {
-		if err := processSingleFileImproved(db, processor, filePath); err != nil {
-			log.Printf("Error processing file %s: %v", filePath, err)
-		}
-	}
-}
-
-// processSingleFileImproved обрабатывает один файл с улучшенной архитектурой
-func processSingleFileImproved(db *database.DB, processor *fileprocessor.ImprovedFileProcessor, filePath string) error {
-	log.Printf("Processing file: %s", filePath)
-
-	fileInfo, err := processor.ProcessFile(filePath)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("File info: %s, size: %d bytes, hash: %s",
-		fileInfo.Name, fileInfo.Size, fileInfo.Hash[:8])
-
-	device, err := db.GetOrCreateDevice(fileInfo.Name)
-	if err != nil {
-		return err
-	}
-
-	_, err = processor.SaveVersion(context.Background(), db, fileInfo, device.ID)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("Successfully processed version for %s", fileInfo.Name)
-	return nil
+	return fmt.Errorf("MySQL не стал готов после %d попыток", maxAttempts)
 }

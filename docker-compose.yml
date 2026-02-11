@@ -46,8 +46,10 @@ services:
     build: ./scheduler
     container_name: blackbox-scheduler
     restart: unless-stopped
+    privileged: true
     volumes:
       - ./scheduler/configs:/app/configs
+      - ./.env:/.env
     environment:
       - USE_MINIO=true
       - DIFF_THRESHOLD=0.5
@@ -56,6 +58,19 @@ services:
       - MINIO_SECRET_KEY=minioadmin123
       - MINIO_BUCKET_NAME=blackbox-configs
       - MINIO_USE_SSL=false
+      - FILE_SERVER_TYPE=nfs
+      - NFS_SERVER=192.168.50.149
+      - NFS_SHARE_PATH=/srv/share
+      - NFS_MOUNT_POINT=/mnt/nfs
+      - SMB_SERVER=192.168.50.149
+      - SMB_SHARE_NAME=share
+      - SMB_MOUNT_POINT=/mnt/smb
+      - SMB_USERNAME=guest
+      - SMB_PASSWORD=
+      - SMB_DOMAIN=WORKGROUP
+      - MAX_FILE_SIZE_MB=1024
+      - RETRY_ATTEMPTS=3
+      - TIMEOUT_SECONDS=30
     depends_on:
       mysql-db:
         condition: service_healthy
