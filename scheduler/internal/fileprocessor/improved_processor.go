@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"blackbox-scheduler/internal/database"
@@ -297,11 +298,49 @@ func (ifp *ImprovedFileProcessor) GetFilesInDirectory(dirPath string) ([]string,
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
-			files = append(files, filepath.Join(dirPath, entry.Name()))
+			fileName := entry.Name()
+
+			// Skip temporary and backup files
+			if ifp.shouldSkipFile(fileName) {
+				log.Printf("Skipping temporary file: %s", fileName)
+				continue
+			}
+
+			files = append(files, filepath.Join(dirPath, fileName))
 		}
 	}
 
 	return files, nil
+}
+
+func (ifp *ImprovedFileProcessor) shouldSkipFile(fileName string) bool {
+	// Skip vim swap files
+	if strings.HasSuffix(fileName, ".swp") || strings.HasSuffix(fileName, ".swo") {
+		return true
+	}
+
+	// Skip other temporary and backup files
+	tempSuffixes := []string{".tmp", ".temp", ".bak", "~", ".lock"}
+	for _, suffix := range tempSuffixes {
+		if strings.HasSuffix(fileName, suffix) {
+			return true
+		}
+	}
+
+	// Skip hidden files (starting with dot)
+	if strings.HasPrefix(fileName, ".") {
+		return true
+	}
+
+	// Skip system files
+	systemFiles := []string{"Thumbs.db", "desktop.ini", ".DS_Store"}
+	for _, sysFile := range systemFiles {
+		if fileName == sysFile {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (ifp *ImprovedFileProcessor) Close() error {
