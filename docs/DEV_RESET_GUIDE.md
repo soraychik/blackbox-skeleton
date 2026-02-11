@@ -72,13 +72,10 @@ sed -i 's/DEV_FULL_RESET=true/DEV_FULL_RESET=false/' .env
 ```
 
 ### Git Safety
-Не добавляйте `DEV_FULL_RESET=true` в Git:
+Для разработки можно временно игнорировать изменения в .env файле:
 ```bash
 # Игнорировать изменения в .env файле
 git update-index --assume-unchanged .env
-
-# Или добавить в .gitignore
-echo ".env" >> .gitignore
 ```
 
 ## Troubleshooting
@@ -163,7 +160,6 @@ DATABASE_NAME=blackbox_prod
 ## Security Notes
 
 - Никогда не используйте `DEV_FULL_RESET=true` в продакшн
-- Храните `.env` в `.gitignore`
 - Используйте разные переменные для разных окружений
 - Регулярно проверяйте git status на случайные изменения
 
