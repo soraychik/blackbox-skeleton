@@ -2,8 +2,7 @@
 storage/archived_configs/
 scheduler/configs/*
 
-# Environment variables
-.env
+
 
 # Игнорируем временные файлы редакторов
 .vscode/

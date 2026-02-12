@@ -295,20 +295,38 @@ func (fsm *FileServerManager) Close() error {
 }
 
 // getConfigsFromEnv загружает конфигурации серверов из переменных окружения
+// ТОЛЬКО ОДИН РЕЖИМ: либо удаленные сервера, либо локальное хранилище
 func getConfigsFromEnv() map[string]*FileServerConfig {
 	configs := make(map[string]*FileServerConfig)
 
+	// Проверяем, включен ли локальный режим
+	if getEnv("LOCAL_FS_ENABLED", "false") == "true" {
+		log.Println("РАЗРАБОТЧИЧЕСКИЙ РЕЖИМ: используется только локальное хранилище")
+		configs["local"] = &FileServerConfig{
+			ID:        "local",
+			Type:      "local",
+			LocalPath: getEnv("LOCAL_FS_PATH", "/app/configs"),
+			Enabled:   true,
+		}
+		return configs
+	}
+
+	// ПРОИЗВОДСТВЕННЫЙ РЕЖИМ: используем удаленные файловые сервера
+	log.Println("ПРОИЗВОДСТВЕННЫЙ РЕЖИМ: используются удаленные файловые сервера")
+
 	// Конфигурация для сервера 1
-	configs["server1"] = &FileServerConfig{
-		ID:         "server1",
-		Type:       getEnv("FILE_SERVER_TYPE", "nfs"),
-		Server:     getEnv("NFS_SERVER", "192.168.50.149"),
-		SharePath:  getEnv("NFS_SHARE_PATH", "/srv/share"),
-		MountPoint: getEnv("NFS_MOUNT_POINT", "/mnt/nfs"),
-		Username:   getEnv("SMB_USERNAME", "guest"),
-		Password:   getEnv("SMB_PASSWORD", ""),
-		Domain:     getEnv("SMB_DOMAIN", "WORKGROUP"),
-		Enabled:    true,
+	if getEnv("FILE_SERVER_ENABLED", "true") == "true" {
+		configs["server1"] = &FileServerConfig{
+			ID:         "server1",
+			Type:       getEnv("FILE_SERVER_TYPE", "nfs"),
+			Server:     getEnv("NFS_SERVER", "192.168.70.149"),
+			SharePath:  getEnv("NFS_SHARE_PATH", "/srv/share"),
+			MountPoint: getEnv("NFS_MOUNT_POINT", "/mnt/nfs"),
+			Username:   getEnv("SMB_USERNAME", "guest"),
+			Password:   getEnv("SMB_PASSWORD", ""),
+			Domain:     getEnv("SMB_DOMAIN", "WORKGROUP"),
+			Enabled:    true,
+		}
 	}
 
 	// Конфигурация для сервера 2 (пример)
@@ -322,8 +340,6 @@ func getConfigsFromEnv() map[string]*FileServerConfig {
 			Enabled:    true,
 		}
 	}
-
-	// Добавить больше серверов по мере необходимости...
 
 	return configs
 }

@@ -9,9 +9,6 @@
 git clone <repository-url>
 cd blackbox-skeleton
 
-# Настроить окружение
-cp .env.example .env
-
 # Собрать и запустить
 docker-compose up -d --build
 
@@ -59,11 +56,7 @@ docker-compose logs -f scheduler
 
 ### Основные параметры
 
-Скопируйте `.env.example` в `.env` и настройте параметры:
-
-```bash
-cp .env.example .env
-```
+Настройте параметры в файле `.env` - он уже содержит рабочую конфигурацию.
 
 ### База данных
 
@@ -180,7 +173,7 @@ npm run build
 docker-compose build
 
 # Запуск в продакшн режиме
-docker-compose -f docker-compose.prod.yml up -d
+docker-compose up -d
 ```
 
 ## Мониторинг
