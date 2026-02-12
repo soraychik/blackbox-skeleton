@@ -49,7 +49,8 @@ func main() {
 
 	// Монтируем все серверы
 	if err := serverManager.MountAllServers(); err != nil {
-		log.Fatalf("Не удалось смонтировать файловые серверы: %v", err)
+		log.Printf("Предупреждение: не удалось смонтировать некоторые файловые серверы: %v", err)
+		log.Println("Продолжаем работу с работающими серверами...")
 	}
 	defer serverManager.Close()
 

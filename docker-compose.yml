@@ -50,27 +50,38 @@ services:
     volumes:
       - ./scheduler/configs:/app/configs
       - ./.env:/.env
+    # Передаем только нужные переменные из .env файла
     environment:
-      - USE_MINIO=true
-      - DIFF_THRESHOLD=0.5
-      - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=minioadmin
-      - MINIO_SECRET_KEY=minioadmin123
-      - MINIO_BUCKET_NAME=blackbox-configs
-      - MINIO_USE_SSL=false
-      - FILE_SERVER_TYPE=nfs
-      - NFS_SERVER=192.168.50.149
-      - NFS_SHARE_PATH=/srv/share
-      - NFS_MOUNT_POINT=/mnt/nfs
-      - SMB_SERVER=192.168.50.149
-      - SMB_SHARE_NAME=share
-      - SMB_MOUNT_POINT=/mnt/smb
-      - SMB_USERNAME=guest
-      - SMB_PASSWORD=
-      - SMB_DOMAIN=WORKGROUP
-      - MAX_FILE_SIZE_MB=1024
-      - RETRY_ATTEMPTS=3
-      - TIMEOUT_SECONDS=30
+      # Настройки хранилища
+      - USE_MINIO=${USE_MINIO}
+      - DIFF_THRESHOLD=${DIFF_THRESHOLD}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
+      - MINIO_USE_SSL=${MINIO_USE_SSL}
+      
+      # Настройки файловых серверов
+      - FILE_SERVER_TYPE=${FILE_SERVER_TYPE}
+      - FILE_SERVER_ENABLED=${FILE_SERVER_ENABLED}
+      - NFS_SERVER=${NFS_SERVER}
+      - NFS_SHARE_PATH=${NFS_SHARE_PATH}
+      - NFS_MOUNT_POINT=${NFS_MOUNT_POINT}
+      - SMB_SERVER=${SMB_SERVER}
+      - SMB_SHARE_NAME=${SMB_SHARE_NAME}
+      - SMB_MOUNT_POINT=${SMB_MOUNT_POINT}
+      - SMB_USERNAME=${SMB_USERNAME}
+      - SMB_PASSWORD=${SMB_PASSWORD}
+      - SMB_DOMAIN=${SMB_DOMAIN}
+      
+      # Настройки локального хранилища
+      - LOCAL_FS_ENABLED=${LOCAL_FS_ENABLED}
+      - LOCAL_FS_PATH=${LOCAL_FS_PATH}
+      
+      # Настройки производительности
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB}
+      - RETRY_ATTEMPTS=${RETRY_ATTEMPTS}
+      - TIMEOUT_SECONDS=${TIMEOUT_SECONDS}
     depends_on:
       mysql-db:
         condition: service_healthy
@@ -86,13 +97,15 @@ services:
     ports:
       - "8080:8080"
     volumes: []
+    # Передаем только нужные переменные из .env файла
     environment:
-      - USE_MINIO=true
-      - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=minioadmin
-      - MINIO_SECRET_KEY=minioadmin123
-      - MINIO_BUCKET_NAME=blackbox-configs
-      - MINIO_USE_SSL=false
+      # Настройки хранилища
+      - USE_MINIO=${USE_MINIO}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
+      - MINIO_USE_SSL=${MINIO_USE_SSL}
     depends_on:
       mysql-db:
         condition: service_healthy
