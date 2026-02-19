@@ -4,12 +4,9 @@ import axios from 'axios';
 // В браузере используем localhost или значение из переменной окружения
 // так как браузер работает на хосте пользователя, а не внутри Docker сети
 const getApiUrl = () => {
-  // Если переменная окружения установлена, используем её
   if (process.env.REACT_APP_API_URL) {
     return process.env.REACT_APP_API_URL;
   }
-  
-  // По умолчанию используем localhost:8080
   return 'http://localhost:8080';
 };
 
@@ -60,6 +57,30 @@ export const getVersionContent = async (versionId) => {
 
 export const getVersionDiff = async (versionId1, versionId2) => {
   const response = await api.get(`/versions/diff/${versionId1}/${versionId2}`);
+  return response.data;
+};
+
+export const searchPattern = async (params) => {
+  const response = await api.post('/search/count', params);
+  return response.data.results || [];
+};
+
+export const getDeviceVersions = async (deviceId) => {
+  const response = await api.get(`/devices/${deviceId}/versions`);
+  return response.data;
+};
+
+export const getDevicesDiff = async (deviceId1, deviceId2, date) => {
+  const response = await api.post('/diff/devices', {
+    device_id_1: deviceId1,
+    device_id_2: deviceId2,
+    date,
+  });
+  return response.data;
+};
+
+export const getDiffByDate = async (deviceId, date1, date2) => {
+  const response = await api.get(`/diff/date?device_id=${deviceId}&date1=${date1}&date2=${date2}`);
   return response.data;
 };
 
