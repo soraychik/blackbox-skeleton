@@ -11,8 +11,8 @@ const VersionsTab = () => {
 
   const sortVersionsByChangeDate = useCallback((data, order) => {
     const sorted = [...data].sort((a, b) => {
-      const dateA = new Date(a.version_date);
-      const dateB = new Date(b.version_date);
+      const dateA = new Date(a.created_at);
+      const dateB = new Date(b.created_at);
       
       if (order === 'asc') {
         return dateA - dateB;
@@ -73,24 +73,23 @@ const VersionsTab = () => {
           <tr>
             <th>Название</th>
             <th>
-              Время изменения
+              Время создания
               <button className="sort-button" onClick={handleSort} title="Сортировать">
                 {sortOrder === 'desc' ? '↓' : '↑'}
               </button>
             </th>
-            <th>Время создания</th>
           </tr>
         </thead>
         <tbody>
           {versions.length === 0 ? (
             <tr>
-              <td colSpan="3" className="empty">Нет данных</td>
+              <td colSpan="2" className="empty">Нет данных</td>
             </tr>
           ) : (
             versions.map((version) => (
               <tr key={version.id}>
-                <td>{version.device_name}</td>
-                <td>{formatDateTime(version.version_date)}</td>
+                <td>{version.device_hostname}</td>
+                <td>{formatDateTime(version.created_at)}</td>
                 <td>{formatDateTime(version.created_at)}</td>
               </tr>
             ))

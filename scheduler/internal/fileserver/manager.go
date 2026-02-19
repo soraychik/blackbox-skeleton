@@ -202,13 +202,8 @@ func (fsm *FileServerManager) processSingleFile(serverID, filePath string) error
 	// Включаем ID сервера в имя устройства для уникальности
 	deviceName := fmt.Sprintf("%s-%s", serverID, fileInfo.Name)
 
-	device, err := fsm.db.GetOrCreateDevice(deviceName)
-	if err != nil {
-		return fmt.Errorf("не удалось получить/создать устройство: %w", err)
-	}
-
 	ctx := context.Background()
-	_, err = fsm.processor.SaveVersion(ctx, fsm.db, fileInfo, device.ID)
+	_, err = fsm.processor.SaveVersion(ctx, fsm.db, fileInfo)
 	if err != nil {
 		return fmt.Errorf("не удалось сохранить версию: %w", err)
 	}

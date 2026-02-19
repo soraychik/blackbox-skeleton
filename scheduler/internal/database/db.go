@@ -15,7 +15,6 @@ type DB struct {
 	connection *sql.DB
 }
 
-// getEnv возвращает значение переменной окружения или значение по умолчанию
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -23,16 +22,13 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-// NewDB создаёт новое подключение к БД
 func NewDB() (*DB, error) {
-	// Берем настройки из переменных окружения
 	dbHost := getEnv("DATABASE_HOST", "mysql-db")
 	dbPort := getEnv("DATABASE_PORT", "3306")
 	dbUser := getEnv("DATABASE_USER", "appuser")
 	dbPassword := getEnv("DATABASE_PASSWORD", "apppassword")
 	dbName := getEnv("DATABASE_NAME", "blackbox")
 
-	// Формируем DSN строку из переменных окружения
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
 		dbUser, dbPassword, dbHost, dbPort, dbName)
 
@@ -43,12 +39,10 @@ func NewDB() (*DB, error) {
 		return nil, fmt.Errorf("failed to connect to database: %v", err)
 	}
 
-	// Устанавливаем таймауты
 	conn.SetConnMaxLifetime(time.Minute * 3)
 	conn.SetMaxOpenConns(10)
 	conn.SetMaxIdleConns(10)
 
-	// Проверяем подключение
 	if err := conn.Ping(); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to ping database: %v", err)
@@ -58,21 +52,18 @@ func NewDB() (*DB, error) {
 	return &DB{connection: conn}, nil
 }
 
-// GetOrCreateDevice получает устройство по имени или создаёт новое
-func (db *DB) GetOrCreateDevice(name string) (*models.Device, error) {
+func (db *DB) GetOrCreateDevice(hostname string) (*models.Device, error) {
 	var device models.Device
 
-	// Пытаемся найти устройство
 	err := db.connection.QueryRow(
-		"SELECT id, name, created_at FROM devices WHERE name = ?",
-		name,
-	).Scan(&device.ID, &device.Name, &device.CreatedAt)
+		"SELECT id, hostname, created_at FROM devices WHERE hostname = ?",
+		hostname,
+	).Scan(&device.ID, &device.Hostname, &device.CreatedAt)
 
 	if err == sql.ErrNoRows {
-		// Устройства нет - создаём
 		result, err := db.connection.Exec(
-			"INSERT INTO devices (name) VALUES (?)",
-			name,
+			"INSERT INTO devices (hostname) VALUES (?)",
+			hostname,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create device: %v", err)
@@ -80,138 +71,105 @@ func (db *DB) GetOrCreateDevice(name string) (*models.Device, error) {
 
 		id, _ := result.LastInsertId()
 		device.ID = int(id)
-		device.Name = name
+		device.Hostname = hostname
 		device.CreatedAt = time.Now()
+		device.Enabled = true
 
-		log.Printf("Created new device: %s (ID: %d)", name, id)
+		log.Printf("Created new device: %s (ID: %d)", hostname, id)
 		return &device, nil
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to get device: %v", err)
 	}
 
-	log.Printf("Found existing device: %s (ID: %d)", name, device.ID)
+	log.Printf("Found existing device: %s (ID: %d)", hostname, device.ID)
 	return &device, nil
 }
 
-// GetLatestVersion получает последнюю версию конфига для устройства
-func (db *DB) GetLatestVersion(deviceID int) (*models.ConfigVersion, error) {
-	var version models.ConfigVersion
+func (db *DB) GetDeviceByID(id int) (*models.Device, error) {
+	var device models.Device
 
-	err := db.connection.QueryRow(`
-        SELECT id, device_id, version_date, file_path, file_hash, created_at 
-        FROM config_versions 
-        WHERE device_id = ? 
-        ORDER BY version_date DESC 
-        LIMIT 1`,
-		deviceID,
-	).Scan(&version.ID, &version.DeviceID, &version.VersionDate, &version.FilePath, &version.FileHash, &version.CreatedAt)
+	err := db.connection.QueryRow(
+		"SELECT id, hostname, mgmt_ip, vendor, model, tags, enabled, created_at FROM devices WHERE id = ?",
+		id,
+	).Scan(&device.ID, &device.Hostname, &device.MgmtIP, &device.Vendor, &device.Model, &device.Tags, &device.Enabled, &device.CreatedAt)
 
 	if err == sql.ErrNoRows {
-		return nil, nil // Версий ещё нет
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to get device: %v", err)
+	}
+
+	return &device, nil
+}
+
+func (db *DB) GetAllDevices() ([]models.Device, error) {
+	rows, err := db.connection.Query(
+		"SELECT id, hostname, mgmt_ip, vendor, model, tags, enabled, created_at FROM devices ORDER BY id",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query devices: %v", err)
+	}
+	defer rows.Close()
+
+	var devices []models.Device
+	for rows.Next() {
+		var device models.Device
+		if err := rows.Scan(&device.ID, &device.Hostname, &device.MgmtIP, &device.Vendor, &device.Model, &device.Tags, &device.Enabled, &device.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan device: %v", err)
+		}
+		devices = append(devices, device)
+	}
+
+	return devices, nil
+}
+
+func (db *DB) GetLatestVersion(deviceID int) (*models.ConfigVersion, error) {
+	var version models.ConfigVersion
+	var parentVersionID, chainBaseID sql.NullInt32
+
+	err := db.connection.QueryRow(`
+		SELECT id, device_id, version_hash, storage_type, storage_path, 
+		       parent_version_id, chain_base_id, chain_position, 
+		       original_size, compressed_size, created_at 
+		FROM config_versions 
+		WHERE device_id = ? 
+		ORDER BY id DESC 
+		LIMIT 1`,
+		deviceID,
+	).Scan(&version.ID, &version.DeviceID, &version.VersionHash, &version.StorageType, &version.StoragePath,
+		&parentVersionID, &chainBaseID, &version.ChainPosition, &version.OriginalSize, &version.CompressedSize, &version.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to get latest version: %v", err)
+	}
+
+	if parentVersionID.Valid {
+		pid := int(parentVersionID.Int32)
+		version.ParentVersionID = &pid
+	}
+	if chainBaseID.Valid {
+		cid := int(chainBaseID.Int32)
+		version.ChainBaseID = &cid
 	}
 
 	return &version, nil
 }
 
-// SaveVersion сохраняет новую версию конфига (legacy)
-func (db *DB) SaveVersion(deviceID int, filePath, fileHash string, versionDate time.Time) error {
-	_, err := db.connection.Exec(`
-        INSERT INTO config_versions (device_id, version_date, file_path, file_hash) 
-        VALUES (?, ?, ?, ?)`,
-		deviceID, versionDate, filePath, fileHash,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to save version: %v", err)
-	}
-
-	log.Printf("Saved new version for device ID %d: %s", deviceID, filePath)
-	return nil
-}
-
-// SaveFullVersion сохраняет полную версию конфигурации
-func (db *DB) SaveFullVersion(deviceID int, minioObjectName, fileHash string, versionDate time.Time, storageType string, originalSize, compressedSize int64) (*models.ConfigVersion, error) {
-	result, err := db.connection.Exec(`
-        INSERT INTO config_versions (device_id, version_date, file_path, file_hash, storage_type, minio_object_name, diff_size_bytes) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		deviceID, versionDate, minioObjectName, fileHash, storageType, minioObjectName, int(compressedSize),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to save full version: %v", err)
-	}
-
-	id, _ := result.LastInsertId()
-
-	// Сохраняем информацию о снапшоте
-	_, err = db.connection.Exec(`
-        INSERT INTO storage_snapshots (device_id, version_id, snapshot_type, minio_object_name, file_size_bytes, compressed_size_bytes) 
-        VALUES (?, ?, ?, ?, ?, ?)`,
-		deviceID, id, storageType, minioObjectName, originalSize, compressedSize,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to save snapshot info: %v", err)
-	}
-
-	version := &models.ConfigVersion{
-		ID:              int(id),
-		DeviceID:        deviceID,
-		VersionDate:     versionDate,
-		FilePath:        minioObjectName,
-		FileHash:        fileHash,
-		StorageType:     storageType,
-		ParentVersionID: nil,
-		MinioObjectName: minioObjectName,
-		DiffSizeBytes:   int(compressedSize),
-		CreatedAt:       time.Now(),
-	}
-
-	log.Printf("Saved new full version for device ID %d: %s (storage: %s)", deviceID, minioObjectName, storageType)
-	return version, nil
-}
-
-// SaveDiffVersion сохраняет diff версию конфигурации
-func (db *DB) SaveDiffVersion(deviceID int, minioObjectName, fileHash string, versionDate time.Time, parentVersionID int, diffSizeBytes int64) (*models.ConfigVersion, error) {
-	result, err := db.connection.Exec(`
-        INSERT INTO config_versions (device_id, version_date, file_path, file_hash, storage_type, parent_version_id, minio_object_name, diff_size_bytes) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		deviceID, versionDate, minioObjectName, fileHash, "diff", parentVersionID, minioObjectName, diffSizeBytes,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to save diff version: %v", err)
-	}
-
-	id, _ := result.LastInsertId()
-
-	version := &models.ConfigVersion{
-		ID:              int(id),
-		DeviceID:        deviceID,
-		VersionDate:     versionDate,
-		FilePath:        minioObjectName,
-		FileHash:        fileHash,
-		StorageType:     "diff",
-		ParentVersionID: &parentVersionID,
-		MinioObjectName: minioObjectName,
-		DiffSizeBytes:   int(diffSizeBytes),
-		CreatedAt:       time.Now(),
-	}
-
-	log.Printf("Saved new diff version for device ID %d: %s (parent: %d)", deviceID, minioObjectName, parentVersionID)
-	return version, nil
-}
-
-// GetVersionByID получает версию по ID
 func (db *DB) GetVersionByID(versionID int) (*models.ConfigVersion, error) {
 	var version models.ConfigVersion
-	var parentVersionID sql.NullInt32
+	var parentVersionID, chainBaseID sql.NullInt32
 
 	err := db.connection.QueryRow(`
-        SELECT id, device_id, version_date, file_path, file_hash, storage_type, parent_version_id, minio_object_name, diff_size_bytes, created_at 
-        FROM config_versions 
-        WHERE id = ?`,
+		SELECT id, device_id, version_hash, storage_type, storage_path, 
+		       parent_version_id, chain_base_id, chain_position, 
+		       original_size, compressed_size, created_at 
+		FROM config_versions 
+		WHERE id = ?`,
 		versionID,
-	).Scan(&version.ID, &version.DeviceID, &version.VersionDate, &version.FilePath, &version.FileHash,
-		&version.StorageType, &parentVersionID, &version.MinioObjectName, &version.DiffSizeBytes, &version.CreatedAt)
+	).Scan(&version.ID, &version.DeviceID, &version.VersionHash, &version.StorageType, &version.StoragePath,
+		&parentVersionID, &chainBaseID, &version.ChainPosition, &version.OriginalSize, &version.CompressedSize, &version.CreatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -223,69 +181,222 @@ func (db *DB) GetVersionByID(versionID int) (*models.ConfigVersion, error) {
 		pid := int(parentVersionID.Int32)
 		version.ParentVersionID = &pid
 	}
+	if chainBaseID.Valid {
+		cid := int(chainBaseID.Int32)
+		version.ChainBaseID = &cid
+	}
 
 	return &version, nil
 }
 
-// GetAllVersionsForMigration получает все версии для миграции
-func (db *DB) GetAllVersionsForMigration() ([]models.ConfigVersion, error) {
+func (db *DB) GetVersionsInChain(chainBaseID int) ([]models.ConfigVersion, error) {
 	rows, err := db.connection.Query(`
-		SELECT id, device_id, version_date, file_path, file_hash, created_at 
+		SELECT id, device_id, version_hash, storage_type, storage_path, 
+		       parent_version_id, chain_base_id, chain_position, 
+		       original_size, compressed_size, created_at 
 		FROM config_versions 
-		WHERE storage_type IS NULL OR storage_type = 'full' 
-		ORDER BY device_id, version_date ASC
-	`)
+		WHERE chain_base_id = ? OR id = ?
+		ORDER BY chain_position ASC`,
+		chainBaseID, chainBaseID,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query versions for migration: %v", err)
+		return nil, fmt.Errorf("failed to query versions in chain: %v", err)
 	}
 	defer rows.Close()
 
 	var versions []models.ConfigVersion
 	for rows.Next() {
 		var version models.ConfigVersion
-
-		err := rows.Scan(&version.ID, &version.DeviceID, &version.VersionDate,
-			&version.FilePath, &version.FileHash, &version.CreatedAt)
-		if err != nil {
+		var parentVersionID, chainBase sql.NullInt32
+		if err := rows.Scan(&version.ID, &version.DeviceID, &version.VersionHash, &version.StorageType, &version.StoragePath,
+			&parentVersionID, &chainBase, &version.ChainPosition, &version.OriginalSize, &version.CompressedSize, &version.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan version: %v", err)
 		}
-
+		if parentVersionID.Valid {
+			pid := int(parentVersionID.Int32)
+			version.ParentVersionID = &pid
+		}
+		if chainBase.Valid {
+			cid := int(chainBase.Int32)
+			version.ChainBaseID = &cid
+		}
 		versions = append(versions, version)
 	}
 
 	return versions, nil
 }
 
-// UpdateVersionForMigration обновляет версию после миграции
-func (db *DB) UpdateVersionForMigration(versionID int, minioObjectName, storageType string, originalSize, compressedSize int64) error {
-	_, err := db.connection.Exec(`
-		UPDATE config_versions 
-		SET storage_type = ?, minio_object_name = ?, diff_size_bytes = ?
-		WHERE id = ?`,
-		storageType, minioObjectName, compressedSize, versionID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update version for migration: %v", err)
+func (db *DB) GetVersionsForDevice(deviceID int, limit int, offset int) ([]models.ConfigVersion, error) {
+	query := `
+		SELECT id, device_id, version_hash, storage_type, storage_path, 
+		       parent_version_id, chain_base_id, chain_position, 
+		       original_size, compressed_size, created_at 
+		FROM config_versions 
+		WHERE device_id = ? 
+		ORDER BY id DESC`
+
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
 	}
 
+	rows, err := db.connection.Query(query, deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query versions: %v", err)
+	}
+	defer rows.Close()
+
+	var versions []models.ConfigVersion
+	for rows.Next() {
+		var version models.ConfigVersion
+		var parentVersionID, chainBaseID sql.NullInt32
+		if err := rows.Scan(&version.ID, &version.DeviceID, &version.VersionHash, &version.StorageType, &version.StoragePath,
+			&parentVersionID, &chainBaseID, &version.ChainPosition, &version.OriginalSize, &version.CompressedSize, &version.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan version: %v", err)
+		}
+		if parentVersionID.Valid {
+			pid := int(parentVersionID.Int32)
+			version.ParentVersionID = &pid
+		}
+		if chainBaseID.Valid {
+			cid := int(chainBaseID.Int32)
+			version.ChainBaseID = &cid
+		}
+		versions = append(versions, version)
+	}
+
+	return versions, nil
+}
+
+func (db *DB) SaveVersion(
+	deviceID int,
+	versionHash string,
+	storageType string,
+	storagePath string,
+	parentVersionID *int,
+	chainBaseID *int,
+	chainPosition int,
+	originalSize uint32,
+	compressedSize uint32,
+) (*models.ConfigVersion, error) {
+
+	var baseID, parentID interface{}
+	if chainBaseID != nil {
+		baseID = *chainBaseID
+	}
+	if parentVersionID != nil {
+		parentID = *parentVersionID
+	}
+
+	result, err := db.connection.Exec(`
+		INSERT INTO config_versions 
+		(device_id, version_hash, storage_type, storage_path, parent_version_id, chain_base_id, chain_position, original_size, compressed_size) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		deviceID, versionHash, storageType, storagePath, parentID, baseID, chainPosition, originalSize, compressedSize,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save version: %v", err)
+	}
+
+	id, _ := result.LastInsertId()
+
+	version := &models.ConfigVersion{
+		ID:              int(id),
+		DeviceID:        deviceID,
+		VersionHash:     versionHash,
+		StorageType:     storageType,
+		StoragePath:     storagePath,
+		ParentVersionID: parentVersionID,
+		ChainBaseID:     chainBaseID,
+		ChainPosition:   chainPosition,
+		OriginalSize:    originalSize,
+		CompressedSize:  compressedSize,
+		CreatedAt:       time.Now(),
+	}
+
+	log.Printf("Saved version %d for device %d: type=%s, chain_pos=%d, path=%s",
+		version.ID, deviceID, storageType, chainPosition, storagePath)
+	return version, nil
+}
+
+func (db *DB) CreateJob(jobType string, status string, payloadJSON *string) (*models.Job, error) {
+	result, err := db.connection.Exec(`
+		INSERT INTO jobs (type, status, payload_json) 
+		VALUES (?, ?, ?)`,
+		jobType, status, payloadJSON,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create job: %v", err)
+	}
+
+	id, _ := result.LastInsertId()
+
+	job := &models.Job{
+		ID:          int(id),
+		Type:        jobType,
+		Status:      status,
+		PayloadJSON: payloadJSON,
+		CreatedAt:   time.Now(),
+	}
+
+	return job, nil
+}
+
+func (db *DB) UpdateJobStatus(jobID int, status string, errorText *string) error {
+	_, err := db.connection.Exec(`
+		UPDATE jobs SET status = ?, error_text = ?, finished_at = NOW() WHERE id = ?`,
+		status, errorText, jobID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update job status: %v", err)
+	}
 	return nil
 }
 
-// CreateStorageSnapshot создает запись в storage_snapshots
-func (db *DB) CreateStorageSnapshot(deviceID, versionID int, snapshotType, minioObjectName string, fileSize, compressedSize int64) error {
-	_, err := db.connection.Exec(`
-		INSERT INTO storage_snapshots (device_id, version_id, snapshot_type, minio_object_name, file_size_bytes, compressed_size_bytes) 
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		deviceID, versionID, snapshotType, minioObjectName, fileSize, compressedSize,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create storage snapshot: %v", err)
+func (db *DB) GetDiffIndex(leftVersionID, rightVersionID int) (*models.DiffIndex, error) {
+	var diffIndex models.DiffIndex
+
+	err := db.connection.QueryRow(`
+		SELECT id, left_version_id, right_version_id, added_lines, removed_lines, diff_content, created_at 
+		FROM diff_index 
+		WHERE left_version_id = ? AND right_version_id = ?`,
+		leftVersionID, rightVersionID,
+	).Scan(&diffIndex.ID, &diffIndex.LeftVersionID, &diffIndex.RightVersionID,
+		&diffIndex.AddedLines, &diffIndex.RemovedLines, &diffIndex.DiffContent, &diffIndex.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to get diff index: %v", err)
 	}
 
-	return nil
+	return &diffIndex, nil
 }
 
-// Закрывает подключение к БД
+func (db *DB) SaveDiffIndex(leftVersionID, rightVersionID int, addedLines, removedLines int, diffContent *string) (*models.DiffIndex, error) {
+	result, err := db.connection.Exec(`
+		INSERT INTO diff_index (left_version_id, right_version_id, added_lines, removed_lines, diff_content) 
+		VALUES (?, ?, ?, ?, ?)`,
+		leftVersionID, rightVersionID, addedLines, removedLines, diffContent,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save diff index: %v", err)
+	}
+
+	id, _ := result.LastInsertId()
+
+	diffIndex := &models.DiffIndex{
+		ID:             int(id),
+		LeftVersionID:  leftVersionID,
+		RightVersionID: rightVersionID,
+		AddedLines:     addedLines,
+		RemovedLines:   removedLines,
+		DiffContent:    diffContent,
+		CreatedAt:      time.Now(),
+	}
+
+	return diffIndex, nil
+}
+
 func (db *DB) Close() error {
 	return db.connection.Close()
 }

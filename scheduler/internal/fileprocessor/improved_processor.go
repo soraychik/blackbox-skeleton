@@ -1,8 +1,10 @@
 package fileprocessor
 
 import (
+	"blackbox-scheduler/internal/database"
 	"blackbox-scheduler/internal/models"
 	"blackbox-scheduler/internal/storage"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -10,10 +12,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
-
-	"blackbox-scheduler/internal/database"
 )
+
+const CHAIN_LENGTH_THRESHOLD = 30
 
 type ImprovedFileProcessor struct {
 	diffEngine    *storage.DiffEngine
@@ -52,17 +53,23 @@ func (ifp *ImprovedFileProcessor) ProcessFile(filePath string) (*models.FileInfo
 		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
 
-	hash := ifp.calculateHash(content)
-	deviceName := fileInfo.Name()
+	normalizedContent := normalizeLineEndings(content)
+	hash := ifp.calculateHash(normalizedContent)
+	hostname := strings.TrimSuffix(fileInfo.Name(), filepath.Ext(fileInfo.Name()))
 
 	return &models.FileInfo{
-		Name:    deviceName,
-		Path:    filePath,
-		Size:    fileInfo.Size(),
-		ModTime: fileInfo.ModTime(),
-		Content: content,
-		Hash:    hash,
+		Name:     fileInfo.Name(),
+		Path:     filePath,
+		Size:     fileInfo.Size(),
+		ModTime:  fileInfo.ModTime(),
+		Content:  normalizedContent,
+		Hash:     hash,
+		Hostname: hostname,
 	}, nil
+}
+
+func normalizeLineEndings(content []byte) []byte {
+	return bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
 }
 
 func (ifp *ImprovedFileProcessor) calculateHash(content []byte) string {
@@ -73,177 +80,181 @@ func (ifp *ImprovedFileProcessor) SaveVersion(
 	ctx context.Context,
 	db *database.DB,
 	fileInfo *models.FileInfo,
-	deviceID int,
 ) (*models.ConfigVersion, error) {
-	latestVersion, err := db.GetLatestVersion(deviceID)
+	device, err := db.GetOrCreateDevice(fileInfo.Hostname)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get or create device: %w", err)
+	}
+	fileInfo.DeviceID = device.ID
+
+	latestVersion, err := db.GetLatestVersion(device.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest version: %w", err)
 	}
 
-	var version *models.ConfigVersion
-
-	if latestVersion == nil || latestVersion.FileHash != fileInfo.Hash {
-		log.Printf("Processing new version for device %s (hash: %s)", fileInfo.Name, fileInfo.Hash[:8])
-
-		if latestVersion != nil && ifp.useMinIO {
-			// Пробуем использовать diff storage
-			version, err = ifp.saveDiffVersion(ctx, db, fileInfo, deviceID, latestVersion)
-			if err != nil {
-				log.Printf("Failed to save diff version, falling back to full storage: %v", err)
-				version, err = ifp.saveFullVersion(ctx, db, fileInfo, deviceID, "full")
-				if err != nil {
-					return nil, fmt.Errorf("failed to save full version as fallback: %w", err)
-				}
-			}
-		} else {
-			// Первый версии или MinIO отключен - сохраняем полный файл
-			version, err = ifp.saveFullVersion(ctx, db, fileInfo, deviceID, "base")
-			if err != nil {
-				return nil, fmt.Errorf("failed to save full version: %w", err)
-			}
-		}
-
-		log.Printf("Successfully saved version %d for device %s (storage: %s)",
-			version.ID, fileInfo.Name, version.StorageType)
-	} else {
-		log.Printf("No changes detected for %s, skipping save", fileInfo.Name)
-		version = latestVersion
+	if latestVersion != nil && latestVersion.VersionHash == fileInfo.Hash {
+		log.Printf("No changes detected for %s (hash: %s), skipping save", fileInfo.Name, fileInfo.Hash[:8])
+		return latestVersion, nil
 	}
+
+	log.Printf("Processing new version for device %s (hash: %s)", fileInfo.Hostname, fileInfo.Hash[:8])
+
+	storageType, storagePath, originalSize, compressedSize, parentVersionID, chainBaseID, chainPosition, err :=
+		ifp.determineStorageType(ctx, db, fileInfo, latestVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine storage type: %w", err)
+	}
+
+	version, err := db.SaveVersion(
+		device.ID,
+		fileInfo.Hash,
+		storageType,
+		storagePath,
+		parentVersionID,
+		chainBaseID,
+		chainPosition,
+		originalSize,
+		compressedSize,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save version: %w", err)
+	}
+
+	log.Printf("Successfully saved version %d for device %s (storage: %s, chain_pos: %d)",
+		version.ID, fileInfo.Hostname, version.StorageType, version.ChainPosition)
 
 	return version, nil
 }
 
-func (ifp *ImprovedFileProcessor) saveFullVersion(
+func (ifp *ImprovedFileProcessor) determineStorageType(
 	ctx context.Context,
 	db *database.DB,
 	fileInfo *models.FileInfo,
-	deviceID int,
-	storageType string,
-) (*models.ConfigVersion, error) {
-	var minioObjectName string
-	var originalSize, compressedSize int64
+	latestVersion *models.ConfigVersion,
+) (storageType, storagePath string, originalSize, compressedSize uint32, parentVersionID, chainBaseID *int, chainPosition int, err error) {
+	if latestVersion == nil {
+		return ifp.saveBaseVersion(ctx, fileInfo, nil, 0)
+	}
+
+	if latestVersion.ChainPosition >= CHAIN_LENGTH_THRESHOLD-1 {
+		log.Printf("Chain position %d >= %d, starting new chain", latestVersion.ChainPosition, CHAIN_LENGTH_THRESHOLD)
+		return ifp.saveBaseVersion(ctx, fileInfo, latestVersion, latestVersion.ID)
+	}
+
+	baseContent, err := ifp.getVersionContent(ctx, latestVersion)
+	if err != nil {
+		return ifp.saveBaseVersion(ctx, fileInfo, latestVersion, latestVersion.ID)
+	}
+
+	stats := ifp.diffEngine.GetStats(baseContent, fileInfo.Content)
+	shouldUseDiff := stats["should_use_diff"].(bool)
+	savingsPercent := stats["savings_percent"].(float64)
+
+	if !shouldUseDiff {
+		log.Printf("Diff savings %.1f%% below threshold, starting new chain", savingsPercent)
+		return ifp.saveBaseVersion(ctx, fileInfo, latestVersion, latestVersion.ID)
+	}
+
+	return ifp.saveDiffVersion(ctx, fileInfo, latestVersion)
+}
+
+func (ifp *ImprovedFileProcessor) saveBaseVersion(
+	ctx context.Context,
+	fileInfo *models.FileInfo,
+	latestVersion *models.ConfigVersion,
+	newChainBaseID int,
+) (storageType, storagePath string, originalSize, compressedSize uint32, parentVersionID, chainBaseID *int, chainPosition int, err error) {
+	var objectName string
 
 	if ifp.useMinIO {
-		// Сохраняем в MinIO
-		versionID := time.Now().UnixNano() // временный ID
-		objectName, origSize, compSize, err := ifp.minioClient.UploadFullConfig(ctx, deviceID, int(versionID), fileInfo.Content)
+		var origSize int64
+		var compSize int64
+		objectName, origSize, compSize, err = ifp.minioClient.UploadFullConfig(ctx, fileInfo.DeviceID, fileInfo.Content)
+		originalSize = uint32(origSize)
+		compressedSize = uint32(compSize)
 		if err != nil {
-			return nil, fmt.Errorf("failed to upload full config to MinIO: %w", err)
+			return "", "", 0, 0, nil, nil, 0, fmt.Errorf("failed to upload to MinIO: %w", err)
 		}
-		minioObjectName = objectName
-		originalSize = origSize
-		compressedSize = compSize
 	} else {
-		// Сохраняем в файловую систему (legacy)
-		archiveBasePath := "/app/archived_configs"
-		now := time.Now()
-		archivePath := filepath.Join(
-			archiveBasePath,
-			fmt.Sprintf("%d", deviceID),
-			now.Format("2006"),
-			now.Format("01"),
-			now.Format("02"),
-			fmt.Sprintf("%s.txt", fileInfo.Hash),
-		)
-
+		archivePath := fmt.Sprintf("/app/archived_configs/%d/%s.txt", fileInfo.DeviceID, fileInfo.Hash)
 		if err := os.MkdirAll(filepath.Dir(archivePath), 0755); err != nil {
-			return nil, fmt.Errorf("failed to create archive directories: %w", err)
+			return "", "", 0, 0, nil, nil, 0, fmt.Errorf("failed to create directories: %w", err)
 		}
-
 		if err := os.WriteFile(archivePath, fileInfo.Content, 0644); err != nil {
-			return nil, fmt.Errorf("failed to write archive file: %w", err)
+			return "", "", 0, 0, nil, nil, 0, fmt.Errorf("failed to write file: %w", err)
 		}
-		minioObjectName = archivePath
-		originalSize = int64(len(fileInfo.Content))
+		objectName = archivePath
+		originalSize = uint32(len(fileInfo.Content))
 		compressedSize = 0
 	}
 
-	// Сохраняем в базу данных
-	versionDate := fileInfo.ModTime
-	if versionDate.IsZero() {
-		versionDate = time.Now()
+	var parentID, baseID *int
+	if latestVersion != nil {
+		parentID = &latestVersion.ID
+	}
+	if newChainBaseID > 0 {
+		baseID = &newChainBaseID
 	}
 
-	version, err := db.SaveFullVersion(deviceID, minioObjectName, fileInfo.Hash, versionDate, storageType, originalSize, compressedSize)
-	if err != nil {
-		return nil, fmt.Errorf("failed to save version to database: %w", err)
-	}
-
-	if ifp.useMinIO {
-		log.Printf("Full version stored in MinIO: %s (compression: %d -> %d bytes, %.1f%% reduction)",
-			minioObjectName, originalSize, compressedSize,
-			float64(originalSize-compressedSize)/float64(originalSize)*100)
-	} else {
-		log.Printf("Full version stored in filesystem: %s", minioObjectName)
-	}
-
-	return version, nil
+	return "base", objectName, originalSize, compressedSize, parentID, baseID, 0, nil
 }
 
 func (ifp *ImprovedFileProcessor) saveDiffVersion(
 	ctx context.Context,
-	db *database.DB,
 	fileInfo *models.FileInfo,
-	deviceID int,
 	latestVersion *models.ConfigVersion,
-) (*models.ConfigVersion, error) {
-	// Получаем контент базовой версии
+) (storageType, storagePath string, origSize, compSize uint32, parentVersionID, chainBaseID *int, chainPosition int, err error) {
 	baseContent, err := ifp.getVersionContent(ctx, latestVersion)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get base version content: %w", err)
+		return "", "", 0, 0, nil, nil, 0, fmt.Errorf("failed to get base content: %w", err)
 	}
 
-	// Проверяем, стоит ли использовать diff
-	stats := ifp.diffEngine.GetStats(baseContent, fileInfo.Content)
-	useDiff := stats["should_use_diff"].(bool)
-
-	if !useDiff {
-		return nil, fmt.Errorf("diff not efficient (savings: %.1f%%)", stats["savings_percent"])
-	}
-
-	// Создаем diff
-	patch, err := ifp.diffEngine.CreateDiff(baseContent, fileInfo.Content, latestVersion.ID)
+	patchContent, err := ifp.diffEngine.CreateDiff(baseContent, fileInfo.Content, latestVersion.ID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create diff: %w", err)
+		return "", "", 0, 0, nil, nil, 0, fmt.Errorf("failed to create diff: %w", err)
 	}
 
-	// Сохраняем diff в MinIO
-	compressedPatch, err := ifp.diffEngine.CompressPatch(patch)
-	if err != nil {
-		return nil, fmt.Errorf("failed to compress patch: %w", err)
+	var objectName string
+
+	if ifp.useMinIO {
+		var o, c int64
+		objectName, o, c, err = ifp.minioClient.UploadDiff(ctx, fileInfo.DeviceID, []byte(patchContent))
+		origSize = uint32(o)
+		compSize = uint32(c)
+		if err != nil {
+			return "", "", 0, 0, nil, nil, 0, fmt.Errorf("failed to upload diff to MinIO: %w", err)
+		}
+	} else {
+		archivePath := fmt.Sprintf("/app/archived_diffs/%d/%s.patch", fileInfo.DeviceID, fileInfo.Hash)
+		if err := os.MkdirAll(filepath.Dir(archivePath), 0755); err != nil {
+			return "", "", 0, 0, nil, nil, 0, fmt.Errorf("failed to create directories: %w", err)
+		}
+		if err := os.WriteFile(archivePath, []byte(patchContent), 0644); err != nil {
+			return "", "", 0, 0, nil, nil, 0, fmt.Errorf("failed to write file: %w", err)
+		}
+		objectName = archivePath
+		origSize = uint32(len(patchContent))
+		compSize = 0
 	}
 
-	diffObjectName, err := ifp.minioClient.UploadDiff(ctx, deviceID, 0, latestVersion.ID, compressedPatch)
-	if err != nil {
-		return nil, fmt.Errorf("failed to upload diff to MinIO: %w", err)
+	parentID := latestVersion.ID
+	var baseID *int
+	if latestVersion.ChainBaseID != nil {
+		baseID = latestVersion.ChainBaseID
+	} else {
+		baseID = &latestVersion.ID
 	}
 
-	// Сохраняем информацию о версии в БД
-	versionDate := fileInfo.ModTime
-	if versionDate.IsZero() {
-		versionDate = time.Now()
-	}
-
-	version, err := db.SaveDiffVersion(deviceID, diffObjectName, fileInfo.Hash, versionDate,
-		latestVersion.ID, int64(len(compressedPatch)))
-	if err != nil {
-		return nil, fmt.Errorf("failed to save diff version to database: %w", err)
-	}
-
-	log.Printf("Diff version stored: %s -> %s (savings: %.1f%%, diff size: %d bytes)",
-		latestVersion.FilePath, diffObjectName, stats["savings_percent"], len(compressedPatch))
-
-	return version, nil
+	return "diff", objectName, origSize, compSize, &parentID, baseID, latestVersion.ChainPosition + 1, nil
 }
 
 func (ifp *ImprovedFileProcessor) getVersionContent(ctx context.Context, version *models.ConfigVersion) ([]byte, error) {
-	if ifp.useMinIO && version.MinioObjectName != "" {
-		return ifp.minioClient.DownloadConfig(ctx, version.MinioObjectName)
+	if ifp.useMinIO && version.StoragePath != "" {
+		return ifp.minioClient.DownloadConfig(ctx, version.StoragePath)
 	}
 
-	// Fallback to filesystem
-	if _, err := os.Stat(version.FilePath); err == nil {
-		return os.ReadFile(version.FilePath)
+	if _, err := os.Stat(version.StoragePath); err == nil {
+		return os.ReadFile(version.StoragePath)
 	}
 
 	return nil, fmt.Errorf("unable to retrieve version content")
@@ -254,12 +265,11 @@ func (ifp *ImprovedFileProcessor) ReconstructVersion(
 	db *database.DB,
 	version *models.ConfigVersion,
 ) ([]byte, error) {
-	if version.StorageType == "full" || version.StorageType == "base" {
+	if version.StorageType == "base" {
 		return ifp.getVersionContent(ctx, version)
 	}
 
 	if version.StorageType == "diff" && version.ParentVersionID != nil {
-		// Рекурсивно восстанавливаем базовую версию
 		parentVersion, err := db.GetVersionByID(*version.ParentVersionID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get parent version: %w", err)
@@ -270,19 +280,17 @@ func (ifp *ImprovedFileProcessor) ReconstructVersion(
 			return nil, fmt.Errorf("failed to reconstruct parent version: %w", err)
 		}
 
-		// Получаем patch
 		patchData, err := ifp.getVersionContent(ctx, version)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get patch data: %w", err)
 		}
 
-		patch, err := ifp.diffEngine.DecompressPatch(patchData)
+		patchContent, err := ifp.diffEngine.DecompressPatch(patchData)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decompress patch: %w", err)
 		}
 
-		// Применяем patch
-		return ifp.diffEngine.ApplyDiff(baseContent, patch)
+		return ifp.diffEngine.ApplyDiff(baseContent, patchContent)
 	}
 
 	return nil, fmt.Errorf("unknown storage type: %s", version.StorageType)
@@ -300,7 +308,6 @@ func (ifp *ImprovedFileProcessor) GetFilesInDirectory(dirPath string) ([]string,
 		if !entry.IsDir() {
 			fileName := entry.Name()
 
-			// Skip temporary and backup files
 			if ifp.shouldSkipFile(fileName) {
 				log.Printf("Skipping temporary file: %s", fileName)
 				continue
@@ -314,12 +321,10 @@ func (ifp *ImprovedFileProcessor) GetFilesInDirectory(dirPath string) ([]string,
 }
 
 func (ifp *ImprovedFileProcessor) shouldSkipFile(fileName string) bool {
-	// Skip vim swap files
 	if strings.HasSuffix(fileName, ".swp") || strings.HasSuffix(fileName, ".swo") {
 		return true
 	}
 
-	// Skip other temporary and backup files
 	tempSuffixes := []string{".tmp", ".temp", ".bak", "~", ".lock"}
 	for _, suffix := range tempSuffixes {
 		if strings.HasSuffix(fileName, suffix) {
@@ -327,12 +332,10 @@ func (ifp *ImprovedFileProcessor) shouldSkipFile(fileName string) bool {
 		}
 	}
 
-	// Skip hidden files (starting with dot)
 	if strings.HasPrefix(fileName, ".") {
 		return true
 	}
 
-	// Skip system files
 	systemFiles := []string{"Thumbs.db", "desktop.ini", ".DS_Store"}
 	for _, sysFile := range systemFiles {
 		if fileName == sysFile {
@@ -344,6 +347,5 @@ func (ifp *ImprovedFileProcessor) shouldSkipFile(fileName string) bool {
 }
 
 func (ifp *ImprovedFileProcessor) Close() error {
-	// Закрываем соединения если нужно
 	return nil
 }
