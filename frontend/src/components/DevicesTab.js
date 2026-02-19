@@ -84,7 +84,7 @@ const DevicesTab = () => {
           ) : (
             devices.map((device) => (
               <tr key={device.id}>
-                <td>{device.name}</td>
+                <td>{device.hostname}</td>
                 <td>{formatDateTime(device.created_at)}</td>
               </tr>
             ))

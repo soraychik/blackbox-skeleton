@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"log"
@@ -10,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"blackbox-api/internal/endpoints"
 	"blackbox-api/internal/storage"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -22,7 +23,6 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()
 
-	// Добавляем CORS middleware
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -32,41 +32,26 @@ func main() {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// Главная страница
 	router.GET("/", func(c *gin.Context) {
 		c.String(http.StatusOK, "BlackBox API Web is running...")
 	})
 
-	// Health check
 	router.GET("/health", func(c *gin.Context) {
 		c.String(http.StatusOK, "OK")
 	})
 
-	// Получить все устройства
 	router.GET("/devices", getDevices)
-
-	// Получить устройство по ID
 	router.GET("/devices/:id", getDeviceByID)
-
-	// Получить все версии конфигов
+	router.GET("/devices/:id/versions", getDeviceVersions)
 	router.GET("/versions", getVersions)
-
-	// Получить diff между двумя версиями
-	router.GET("/versions/diff/:id1/:id2", getVersionDiff)
-
-	// Получить содержимое конфига по ID версии
 	router.GET("/versions/:id/content", getVersionContent)
-
-	// Storage endpoints
-	endpoints.AddStorageEndpoints(router)
+	router.GET("/versions/diff/:id1/:id2", getVersionDiff)
 
 	log.Println("API Web server starting on :8080")
 	router.Run(":8080")
 }
 
-// NewDB создаёт подключение к БД (из database пакета)
 func NewDB() (*sql.DB, error) {
-	// Берем настройки из переменных окружения
 	dbHost := getEnv("DATABASE_HOST", "mysql-db")
 	dbPort := getEnv("DATABASE_PORT", "3306")
 	dbUser := getEnv("DATABASE_USER", "appuser")
@@ -101,7 +86,40 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-// GetDevices возвращает список всех устройств
+type Device struct {
+	ID        int       `json:"id"`
+	Hostname  string    `json:"hostname"`
+	MgmtIP    *string   `json:"mgmt_ip,omitempty"`
+	Vendor    *string   `json:"vendor,omitempty"`
+	Model     *string   `json:"model,omitempty"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type ConfigVersion struct {
+	ID              int       `json:"id"`
+	DeviceID        int       `json:"device_id"`
+	VersionHash     string    `json:"version_hash"`
+	StorageType     string    `json:"storage_type"`
+	StoragePath     string    `json:"storage_path"`
+	ParentVersionID *int      `json:"parent_version_id,omitempty"`
+	ChainBaseID     *int      `json:"chain_base_id,omitempty"`
+	ChainPosition   int       `json:"chain_position"`
+	OriginalSize    uint32    `json:"original_size"`
+	CompressedSize  uint32    `json:"compressed_size"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+type DiffIndex struct {
+	ID             int       `json:"id"`
+	LeftVersionID  int       `json:"left_version_id"`
+	RightVersionID int       `json:"right_version_id"`
+	AddedLines     int       `json:"added_lines"`
+	RemovedLines   int       `json:"removed_lines"`
+	DiffContent    *string   `json:"diff_content,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 func getDevices(c *gin.Context) {
 	db, err := NewDB()
 	if err != nil {
@@ -110,35 +128,26 @@ func getDevices(c *gin.Context) {
 	}
 	defer db.Close()
 
-	rows, err := db.Query("SELECT id, name, created_at FROM devices ORDER BY id")
+	rows, err := db.Query("SELECT id, hostname, mgmt_ip, vendor, model, enabled, created_at FROM devices ORDER BY id")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query devices"})
 		return
 	}
 	defer rows.Close()
 
-	var devices []gin.H
+	var devices []Device
 	for rows.Next() {
-		var id int
-		var name string
-		var createdAt string
-
-		if err := rows.Scan(&id, &name, &createdAt); err != nil {
+		var d Device
+		if err := rows.Scan(&d.ID, &d.Hostname, &d.MgmtIP, &d.Vendor, &d.Model, &d.Enabled, &d.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan device"})
 			return
 		}
-
-		devices = append(devices, gin.H{
-			"id":         id,
-			"name":       name,
-			"created_at": createdAt,
-		})
+		devices = append(devices, d)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"devices": devices})
 }
 
-// GetDeviceByID возвращает устройство по ID
 func getDeviceByID(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -153,29 +162,23 @@ func getDeviceByID(c *gin.Context) {
 	}
 	defer db.Close()
 
-	var deviceID int
-	var name string
-	var createdAt string
-
+	var d Device
 	err = db.QueryRow(
-		"SELECT id, name, created_at FROM devices WHERE id = ?",
+		"SELECT id, hostname, mgmt_ip, vendor, model, enabled, created_at FROM devices WHERE id = ?",
 		id,
-	).Scan(&deviceID, &name, &createdAt)
-	if err != nil {
+	).Scan(&d.ID, &d.Hostname, &d.MgmtIP, &d.Vendor, &d.Model, &d.Enabled, &d.CreatedAt)
+	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Device not found"})
 		return
 	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get device"})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"device": gin.H{
-			"id":         deviceID,
-			"name":       name,
-			"created_at": createdAt,
-		},
-	})
+	c.JSON(http.StatusOK, gin.H{"device": d})
 }
 
-// GetVersions возвращает все версии конфигураций
 func getVersions(c *gin.Context) {
 	db, err := NewDB()
 	if err != nil {
@@ -185,10 +188,14 @@ func getVersions(c *gin.Context) {
 	defer db.Close()
 
 	rows, err := db.Query(`
-		SELECT cv.id, cv.device_id, d.name, cv.version_date, cv.file_path, cv.file_hash, cv.storage_type, cv.minio_object_name, cv.diff_size_bytes, cv.created_at 
+		SELECT cv.id, cv.device_id, cv.version_hash, cv.storage_type, cv.storage_path, 
+		       cv.parent_version_id, cv.chain_base_id, cv.chain_position, 
+		       cv.original_size, cv.compressed_size, cv.created_at,
+		       d.hostname
 		FROM config_versions cv
 		JOIN devices d ON cv.device_id = d.id
-		ORDER BY cv.created_at DESC
+		ORDER BY cv.id DESC
+		LIMIT 100
 	`)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query versions"})
@@ -196,36 +203,107 @@ func getVersions(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var versions []gin.H
-	for rows.Next() {
-		var id, deviceID int
-		var deviceName, versionDate, filePath, fileHash, storageType, minioObjectName string
-		var diffSizeBytes int
-		var createdAt string
+	type VersionWithDevice struct {
+		ID             int       `json:"id"`
+		DeviceID       int       `json:"device_id"`
+		DeviceHostname string    `json:"device_hostname"`
+		VersionHash    string    `json:"version_hash"`
+		StorageType    string    `json:"storage_type"`
+		StoragePath    string    `json:"storage_path"`
+		ChainPosition  int       `json:"chain_position"`
+		OriginalSize   uint32    `json:"original_size"`
+		CompressedSize uint32    `json:"compressed_size"`
+		CreatedAt      time.Time `json:"created_at"`
+	}
 
-		if err := rows.Scan(&id, &deviceID, &deviceName, &versionDate, &filePath, &fileHash, &storageType, &minioObjectName, &diffSizeBytes, &createdAt); err != nil {
+	var versions []VersionWithDevice
+	for rows.Next() {
+		var v VersionWithDevice
+		var parentID, chainBaseID sql.NullInt32
+		if err := rows.Scan(&v.ID, &v.DeviceID, &v.VersionHash, &v.StorageType, &v.StoragePath,
+			&parentID, &chainBaseID, &v.ChainPosition, &v.OriginalSize, &v.CompressedSize, &v.CreatedAt,
+			&v.DeviceHostname); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan version"})
 			return
 		}
-
-		versions = append(versions, gin.H{
-			"id":                id,
-			"device_id":         deviceID,
-			"device_name":       deviceName,
-			"version_date":      versionDate,
-			"file_path":         filePath,
-			"file_hash":         fileHash,
-			"storage_type":      storageType,
-			"minio_object_name": minioObjectName,
-			"diff_size_bytes":   diffSizeBytes,
-			"created_at":        createdAt,
-		})
+		versions = append(versions, v)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"versions": versions})
 }
 
-// GetVersionContent возвращает содержимое конфига по ID версии из MinIO
+func getDeviceVersions(c *gin.Context) {
+	deviceID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid device ID"})
+		return
+	}
+
+	db, err := NewDB()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
+		return
+	}
+	defer db.Close()
+
+	fromStr := c.Query("from")
+	toStr := c.Query("to")
+
+	query := `SELECT id, device_id, version_hash, storage_type, storage_path, 
+		       parent_version_id, chain_base_id, chain_position, 
+		       original_size, compressed_size, created_at 
+		FROM config_versions 
+		WHERE device_id = ?`
+
+	args := []interface{}{deviceID}
+
+	if fromStr != "" {
+		fromID, err := strconv.Atoi(fromStr)
+		if err == nil {
+			query += " AND id >= ?"
+			args = append(args, fromID)
+		}
+	}
+	if toStr != "" {
+		toID, err := strconv.Atoi(toStr)
+		if err == nil {
+			query += " AND id <= ?"
+			args = append(args, toID)
+		}
+	}
+
+	query += " ORDER BY id DESC"
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query versions"})
+		return
+	}
+	defer rows.Close()
+
+	var versions []ConfigVersion
+	for rows.Next() {
+		var v ConfigVersion
+		var parentID, chainBaseID sql.NullInt32
+		if err := rows.Scan(&v.ID, &v.DeviceID, &v.VersionHash, &v.StorageType, &v.StoragePath,
+			&parentID, &chainBaseID, &v.ChainPosition, &v.OriginalSize, &v.CompressedSize, &v.CreatedAt); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan version"})
+			return
+		}
+		if parentID.Valid {
+			pid := int(parentID.Int32)
+			v.ParentVersionID = &pid
+		}
+		if chainBaseID.Valid {
+			cid := int(chainBaseID.Int32)
+			v.ChainBaseID = &cid
+		}
+		versions = append(versions, v)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"versions": versions})
+}
+
 func getVersionContent(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -240,50 +318,118 @@ func getVersionContent(c *gin.Context) {
 	}
 	defer db.Close()
 
-	var minioObjectName string
-	var filePath string
-	err = db.QueryRow("SELECT minio_object_name, file_path FROM config_versions WHERE id = ?", id).Scan(&minioObjectName, &filePath)
-	if err != nil {
+	var version ConfigVersion
+	var parentID, chainBaseID sql.NullInt32
+	err = db.QueryRow(`
+		SELECT id, device_id, version_hash, storage_type, storage_path, 
+		       parent_version_id, chain_base_id, chain_position, 
+		       original_size, compressed_size, created_at 
+		FROM config_versions WHERE id = ?`, id).Scan(
+		&version.ID, &version.DeviceID, &version.VersionHash, &version.StorageType, &version.StoragePath,
+		&parentID, &chainBaseID, &version.ChainPosition, &version.OriginalSize, &version.CompressedSize, &version.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Version not found"})
 		return
 	}
-
-	// Если minio_object_name пуст, пробуем конвертировать старый путь
-	if minioObjectName == "" && filePath != "" {
-		minioObjectName = strings.TrimPrefix(filePath, "configs/")
-	}
-
-	// Если все еще пустой, возвращаем ошибку
-	if minioObjectName == "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No MinIO object name found for this version"})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get version"})
 		return
 	}
 
-	// Подключаемся к MinIO
+	if parentID.Valid {
+		pid := int(parentID.Int32)
+		version.ParentVersionID = &pid
+	}
+	if chainBaseID.Valid {
+		cid := int(chainBaseID.Int32)
+		version.ChainBaseID = &cid
+	}
+
 	minioClient, err := storage.NewMinIOImprovedClient()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to connect to MinIO: %v", err)})
 		return
 	}
 
-	content, err := minioClient.DownloadConfig(c.Request.Context(), minioObjectName)
+	content, err := reconstructVersionContent(c.Request.Context(), db, minioClient, &version)
 	if err != nil {
-		log.Printf("Failed to download config %s from MinIO: %v", minioObjectName, err)
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Config file not found in MinIO: %s", minioObjectName)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to reconstruct version: %v", err)})
 		return
+	}
+
+	computedHash := fmt.Sprintf("%x", sha256.Sum256(content))
+	if computedHash != version.VersionHash {
+		log.Printf("Warning: hash mismatch for version %d: expected %s, got %s", id, version.VersionHash, computedHash)
 	}
 
 	c.String(http.StatusOK, string(content))
 }
 
-// DiffLine представляет одну строку в diff
-type DiffLine struct {
-	Type    string `json:"type"`     // "added", "removed", "unchanged"
-	Content string `json:"content"`  // содержимое строки
-	LineNum int    `json:"line_num"` // номер строки (для левой или правой версии)
+func reconstructVersionContent(ctx context.Context, db *sql.DB, minioClient *storage.MinIOImprovedClient, version *ConfigVersion) ([]byte, error) {
+	log.Printf("DEBUG: reconstructVersionContent called with StorageType=%q, ParentVersionID=%v, StoragePath=%q",
+		version.StorageType, version.ParentVersionID, version.StoragePath)
+
+	if version.StorageType == "base" {
+		return minioClient.DownloadConfig(ctx, version.StoragePath)
+	}
+
+	if version.StorageType == "diff" && version.ParentVersionID != nil {
+		parentVersion, err := getVersionByID(db, *version.ParentVersionID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get parent version: %w", err)
+		}
+
+		baseContent, err := reconstructVersionContent(ctx, db, minioClient, parentVersion)
+		if err != nil {
+			return nil, fmt.Errorf("failed to reconstruct parent: %w", err)
+		}
+
+		patchData, err := minioClient.DownloadConfig(ctx, version.StoragePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to download patch: %w", err)
+		}
+
+		diffEngine := storage.NewDiffEngine()
+		patchContent := string(patchData)
+
+		return diffEngine.ApplyDiff(baseContent, patchContent)
+	}
+
+	return nil, fmt.Errorf("unknown storage type: %s", version.StorageType)
 }
 
-// DiffResult представляет результат сравнения
+func getVersionByID(db *sql.DB, id int) (*ConfigVersion, error) {
+	var v ConfigVersion
+	var parentID, chainBaseID sql.NullInt32
+	err := db.QueryRow(`
+		SELECT id, device_id, version_hash, storage_type, storage_path, 
+		       parent_version_id, chain_base_id, chain_position, 
+		       original_size, compressed_size, created_at 
+		FROM config_versions WHERE id = ?`, id).Scan(
+		&v.ID, &v.DeviceID, &v.VersionHash, &v.StorageType, &v.StoragePath,
+		&parentID, &chainBaseID, &v.ChainPosition, &v.OriginalSize, &v.CompressedSize, &v.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if parentID.Valid {
+		pid := int(parentID.Int32)
+		v.ParentVersionID = &pid
+	}
+	if chainBaseID.Valid {
+		cid := int(chainBaseID.Int32)
+		v.ChainBaseID = &cid
+	}
+	return &v, nil
+}
+
+type DiffLine struct {
+	Type    string `json:"type"`
+	Content string `json:"content"`
+	LineNum int    `json:"line_num"`
+}
+
 type DiffResult struct {
 	LeftVersionID  int        `json:"left_version_id"`
 	RightVersionID int        `json:"right_version_id"`
@@ -292,18 +438,14 @@ type DiffResult struct {
 	Lines          []DiffLine `json:"lines"`
 }
 
-// GetVersionDiff возвращает diff между двумя версиями из MinIO
 func getVersionDiff(c *gin.Context) {
-	id1Param := c.Param("id1")
-	id2Param := c.Param("id2")
-
-	id1, err := strconv.Atoi(id1Param)
+	id1, err := strconv.Atoi(c.Param("id1"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid version ID 1"})
 		return
 	}
 
-	id2, err := strconv.Atoi(id2Param)
+	id2, err := strconv.Atoi(c.Param("id2"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid version ID 2"})
 		return
@@ -316,126 +458,120 @@ func getVersionDiff(c *gin.Context) {
 	}
 	defer db.Close()
 
-	// Получаем имена объектов в MinIO
-	var minioObjectName1, minioObjectName2 string
-	var filePath1, filePath2 string
+	var diffIndex DiffIndex
+	err = db.QueryRow(`
+		SELECT id, left_version_id, right_version_id, added_lines, removed_lines, diff_content, created_at 
+		FROM diff_index 
+		WHERE left_version_id = ? AND right_version_id = ?`,
+		id1, id2,
+	).Scan(&diffIndex.ID, &diffIndex.LeftVersionID, &diffIndex.RightVersionID,
+		&diffIndex.AddedLines, &diffIndex.RemovedLines, &diffIndex.DiffContent, &diffIndex.CreatedAt)
 
-	err = db.QueryRow("SELECT minio_object_name, file_path FROM config_versions WHERE id = ?", id1).Scan(&minioObjectName1, &filePath1)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Version 1 not found"})
+	if err != nil && err != sql.ErrNoRows {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query diff index"})
 		return
 	}
 
-	err = db.QueryRow("SELECT minio_object_name, file_path FROM config_versions WHERE id = ?", id2).Scan(&minioObjectName2, &filePath2)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Version 2 not found"})
-		return
-	}
-
-	// Если minio_object_name пуст, пробуем конвертировать старый путь
-	if minioObjectName1 == "" && filePath1 != "" {
-		minioObjectName1 = strings.TrimPrefix(filePath1, "configs/")
-	}
-	if minioObjectName2 == "" && filePath2 != "" {
-		minioObjectName2 = strings.TrimPrefix(filePath2, "configs/")
-	}
-
-	// Если все еще пустые, возвращаем ошибку
-	if minioObjectName1 == "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No MinIO object name found for version 1"})
-		return
-	}
-	if minioObjectName2 == "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No MinIO object name found for version 2"})
-		return
-	}
-
-	// Подключаемся к MinIO
 	minioClient, err := storage.NewMinIOImprovedClient()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to connect to MinIO: %v", err)})
 		return
 	}
 
-	log.Printf("Reading diff from MinIO: object1='%s', object2='%s'", minioObjectName1, minioObjectName2)
-
-	content1, err := minioClient.DownloadConfig(c.Request.Context(), minioObjectName1)
+	version1, err := getVersionByID(db, id1)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Failed to download config 1 from MinIO: %v", err)})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Version 1 not found"})
 		return
 	}
 
-	content2, err := minioClient.DownloadConfig(c.Request.Context(), minioObjectName2)
+	version2, err := getVersionByID(db, id2)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Failed to download config 2 from MinIO: %v", err)})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Version 2 not found"})
 		return
 	}
 
-	// Вычисляем diff
-	diff := computeDiff(string(content1), string(content2))
+	content1, err := reconstructVersionContent(c.Request.Context(), db, minioClient, version1)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get content 1: %v", err)})
+		return
+	}
+
+	content2, err := reconstructVersionContent(c.Request.Context(), db, minioClient, version2)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get content 2: %v", err)})
+		return
+	}
+
+	diffEngine := storage.NewDiffEngine()
+	addedLines, removedLines := diffEngine.ParseUnifiedDiffStats(string(content2))
+
+	if diffIndex.ID == 0 {
+		diffStr := diffEngine.CreateUnifiedDiff(content1, content2, fmt.Sprintf("v%d", id1), fmt.Sprintf("v%d", id2))
+		_, err = db.Exec(`
+			INSERT INTO diff_index (left_version_id, right_version_id, added_lines, removed_lines, diff_content) 
+			VALUES (?, ?, ?, ?, ?)`,
+			id1, id2, addedLines, removedLines, diffStr,
+		)
+		if err != nil {
+			log.Printf("Failed to cache diff: %v", err)
+		}
+	}
+
+	diffLines := computeDiffLines(string(content1), string(content2))
 
 	result := DiffResult{
 		LeftVersionID:  id1,
 		RightVersionID: id2,
 		LeftContent:    string(content1),
 		RightContent:   string(content2),
-		Lines:          diff,
+		Lines:          diffLines,
 	}
 
 	c.JSON(http.StatusOK, result)
 }
 
-// computeDiff вычисляет построчный diff между двумя текстами с использованием Google's optimized diff-match-patch
-func computeDiff(text1, text2 string) []DiffLine {
+func computeDiffLines(text1, text2 string) []DiffLine {
 	dmp := diffmatchpatch.New()
-
-	// Используем line mode для построчного сравнения
-	charData1, charData2, lineArray := dmp.DiffLinesToChars(text1, text2)
-	diffs := dmp.DiffMain(charData1, charData2, false)
+	lineChar1, lineChar2, lineArray := dmp.DiffLinesToChars(text1, text2)
+	diffs := dmp.DiffMain(lineChar1, lineChar2, false)
+	diffs = dmp.DiffCleanupSemantic(diffs)
 	diffs = dmp.DiffCharsToLines(diffs, lineArray)
 
-	// Конвертируем в наш формат DiffLine
 	var result []DiffLine
 	leftLineNum := 1
 	rightLineNum := 1
 
-	for _, diff := range diffs {
-		lines := strings.Split(diff.Text, "\n")
-
-		// Удаляем пустую строку в конце если есть
+	for _, d := range diffs {
+		lines := strings.Split(d.Text, "\n")
 		if len(lines) > 0 && lines[len(lines)-1] == "" {
 			lines = lines[:len(lines)-1]
 		}
 
 		for _, line := range lines {
-			if line == "" {
-				continue
-			}
-
-			var diffType string
-			var lineNum int
-
-			switch diff.Type {
-			case diffmatchpatch.DiffInsert:
-				diffType = "added"
-				lineNum = rightLineNum
+			switch d.Type {
+			case diffmatchpatch.DiffEqual:
+				result = append(result, DiffLine{
+					Type:    "unchanged",
+					Content: line,
+					LineNum: leftLineNum,
+				})
+				leftLineNum++
 				rightLineNum++
 			case diffmatchpatch.DiffDelete:
-				diffType = "removed"
-				lineNum = leftLineNum
+				result = append(result, DiffLine{
+					Type:    "removed",
+					Content: line,
+					LineNum: leftLineNum,
+				})
 				leftLineNum++
-			case diffmatchpatch.DiffEqual:
-				diffType = "unchanged"
-				lineNum = leftLineNum // для unchanged номера одинаковые
-				leftLineNum++
+			case diffmatchpatch.DiffInsert:
+				result = append(result, DiffLine{
+					Type:    "added",
+					Content: line,
+					LineNum: rightLineNum,
+				})
 				rightLineNum++
 			}
-
-			result = append(result, DiffLine{
-				Type:    diffType,
-				Content: line,
-				LineNum: lineNum,
-			})
 		}
 	}
 

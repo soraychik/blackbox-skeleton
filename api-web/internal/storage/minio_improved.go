@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"log"
@@ -75,6 +76,18 @@ func NewMinIOImprovedClient() (*MinIOImprovedClient, error) {
 	}, nil
 }
 
+func (m *MinIOImprovedClient) GenerateStoragePath(deviceID int, hash string, storageType string) string {
+	now := time.Now()
+	yyyy := now.Format("2006")
+	mm := now.Format("01")
+	dd := now.Format("02")
+
+	if storageType == "base" {
+		return fmt.Sprintf("configs/%d/%s/%s/%s/%s.txt", deviceID, yyyy, mm, dd, hash)
+	}
+	return fmt.Sprintf("diffs/%d/%s/%s/%s/%s.patch", deviceID, yyyy, mm, dd, hash)
+}
+
 func (m *MinIOImprovedClient) UploadCompressed(ctx context.Context, objectName string, content []byte, contentType string) (int64, int64, error) {
 	var compressed bytes.Buffer
 	gz := gzip.NewWriter(&compressed)
@@ -126,23 +139,30 @@ func (m *MinIOImprovedClient) DownloadDecompressed(ctx context.Context, objectNa
 	return content, nil
 }
 
-func (m *MinIOImprovedClient) UploadDiff(ctx context.Context, deviceID int, versionID int, parentVersionID int, diffContent []byte) (string, error) {
-	objectName := fmt.Sprintf("diffs/device-%d/version-%d-from-%d.patch", deviceID, versionID, parentVersionID)
-
-	_, _, err := m.UploadCompressed(ctx, objectName, diffContent, "application/text")
-	if err != nil {
-		return "", fmt.Errorf("failed to upload diff: %w", err)
+func (m *MinIOImprovedClient) UploadFullConfig(ctx context.Context, deviceID int, content []byte) (string, int64, int64, error) {
+	hash := ""
+	if len(content) > 0 {
+		hash = fmt.Sprintf("%x", sha256.Sum256(content))
 	}
 
-	return objectName, nil
-}
+	objectName := m.GenerateStoragePath(deviceID, hash, "base")
 
-func (m *MinIOImprovedClient) UploadFullConfig(ctx context.Context, deviceID int, versionID int, content []byte) (string, int64, int64, error) {
-	objectName := fmt.Sprintf("configs/device-%d/version-%d-full.json", deviceID, versionID)
-
-	originalSize, compressedSize, err := m.UploadCompressed(ctx, objectName, content, "application/json")
+	originalSize, compressedSize, err := m.UploadCompressed(ctx, objectName, content, "text/plain")
 	if err != nil {
 		return "", 0, 0, fmt.Errorf("failed to upload full config: %w", err)
+	}
+
+	return objectName, originalSize, compressedSize, nil
+}
+
+func (m *MinIOImprovedClient) UploadDiff(ctx context.Context, deviceID int, diffContent []byte) (string, int64, int64, error) {
+	hash := fmt.Sprintf("%x", sha256.Sum256(diffContent))
+
+	objectName := m.GenerateStoragePath(deviceID, hash, "diff")
+
+	originalSize, compressedSize, err := m.UploadCompressed(ctx, objectName, diffContent, "text/plain")
+	if err != nil {
+		return "", 0, 0, fmt.Errorf("failed to upload diff: %w", err)
 	}
 
 	return objectName, originalSize, compressedSize, nil
@@ -152,13 +172,8 @@ func (m *MinIOImprovedClient) DownloadConfig(ctx context.Context, objectName str
 	return m.DownloadDecompressed(ctx, objectName)
 }
 
-func (m *MinIOImprovedClient) GenerateObjectName(deviceID int, versionID int, fileType string) string {
-	timestamp := time.Now().Format("2006-01-02-15-04-05")
-	return fmt.Sprintf("%s/device-%d/version-%d-%s", fileType, deviceID, versionID, timestamp)
-}
-
 func (m *MinIOImprovedClient) ListDeviceObjects(ctx context.Context, deviceID int) ([]string, error) {
-	prefix := fmt.Sprintf("device-%d/", deviceID)
+	prefix := fmt.Sprintf("%d/", deviceID)
 
 	var objects []string
 	for object := range m.Client.ListObjects(ctx, m.Bucket, minio.ListObjectsOptions{
@@ -197,7 +212,9 @@ func (m *MinIOImprovedClient) GeneratePresignedURL(ctx context.Context, objectNa
 }
 
 func (m *MinIOImprovedClient) GetStorageStats(ctx context.Context, deviceID int) (map[string]int64, error) {
-	objects, err := m.ListDeviceObjects(ctx, deviceID)
+	prefix := fmt.Sprintf("%d/", deviceID)
+
+	objects, err := m.ListObjects(prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -217,12 +234,26 @@ func (m *MinIOImprovedClient) GetStorageStats(ctx context.Context, deviceID int)
 
 		stats["total"] += info.Size
 
-		if strings.Contains(object, "/version-") && strings.Contains(object, "-full") {
+		if strings.HasPrefix(object, "configs/") {
 			stats["configs"] += info.Size
-		} else if strings.Contains(object, "/diffs/") {
+		} else if strings.HasPrefix(object, "diffs/") {
 			stats["diffs"] += info.Size
 		}
 	}
 
 	return stats, nil
+}
+
+func (m *MinIOImprovedClient) ListObjects(prefix string) ([]string, error) {
+	ctx := context.Background()
+	var objects []string
+	for object := range m.Client.ListObjects(ctx, m.Bucket, minio.ListObjectsOptions{
+		Prefix: prefix,
+	}) {
+		if object.Err != nil {
+			return nil, fmt.Errorf("failed to list objects: %w", object.Err)
+		}
+		objects = append(objects, object.Key)
+	}
+	return objects, nil
 }

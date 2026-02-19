@@ -46,7 +46,8 @@ services:
     build: ./scheduler
     container_name: blackbox-scheduler
     restart: unless-stopped
-    privileged: true
+    cap_add:
+      - SYS_ADMIN
     volumes:
       - ./scheduler/configs:/app/configs
       - ./.env:/.env

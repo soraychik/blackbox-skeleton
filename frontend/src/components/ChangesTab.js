@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { getVersions, getVersionDiff } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
 import './ChangesTab.css';
@@ -64,51 +64,46 @@ const ChangesTab = () => {
     return versions.find(v => v.id === parseInt(versionId));
   };
 
-  const prepareSynchronizedDiffLines = (lines) => {
-    const leftLines = [];
-    const rightLines = [];
+  const processedDiff = useMemo(() => {
+    if (!diffData || !diffData.lines || diffData.lines.length === 0) {
+      return null;
+    }
+
+    const lines = diffData.lines;
+    
+    const stats = {
+      added: 0,
+      removed: 0,
+    };
+
+    lines.forEach(line => {
+      if (line.type === 'added') stats.added++;
+      if (line.type === 'removed') stats.removed++;
+    });
+
+    if (stats.added === 0 && stats.removed === 0) {
+      return { identical: true };
+    }
+
+    const processedLines = [];
     let leftLineNum = 1;
     let rightLineNum = 1;
-    
-    lines.forEach((line, index) => {
-      if (line.type === 'unchanged') {
-        leftLines.push({ ...line, side: 'left', line_num: leftLineNum++ });
-        rightLines.push({ ...line, side: 'right', line_num: rightLineNum++ });
-      } else if (line.type === 'removed') {
-        leftLines.push({ ...line, side: 'left', line_num: leftLineNum++ });
-        rightLines.push({ type: 'empty', side: 'right', content: '', line_num: '' });
-      } else if (line.type === 'added') {
-        leftLines.push({ type: 'empty', side: 'left', content: '', line_num: '' });
-        rightLines.push({ ...line, side: 'right', line_num: rightLineNum++ });
-      }
-    });
-    
-    return { leftLines, rightLines };
-  };
 
-  const renderDiffLine = (line, index) => {
-    if (line.type === 'empty') {
-      return (
-        <div key={`empty-${index}`} className="diff-line diff-line-empty">
-          <span className="diff-line-number"></span>
-          <span className="diff-line-content"></span>
-        </div>
-      );
-    }
-    
-    const className = `diff-line diff-line-${line.type}`;
-    const lineNum = line.line_num || '';
-    const content = line.content || '';
-    
-    return (
-      <div key={`${line.type}-${index}-${lineNum}`} className={className}>
-        <span className="diff-line-number">{lineNum}</span>
-        <span className="diff-line-content">
-          {content === '' ? '\u00A0' : content}
-        </span>
-      </div>
-    );
-  };
+    lines.forEach((line) => {
+      processedLines.push({
+        ...line,
+        leftLineNum: line.type === 'removed' || line.type === 'unchanged' ? leftLineNum++ : null,
+        rightLineNum: line.type === 'added' || line.type === 'unchanged' ? rightLineNum++ : null,
+      });
+    });
+
+    return {
+      identical: false,
+      stats,
+      lines: processedLines,
+      totalLines: lines.length,
+    };
+  }, [diffData]);
 
   if (loading) {
     return <div className="loading">Загрузка версий...</div>;
@@ -146,15 +141,14 @@ const ChangesTab = () => {
             <option value="">Выберите версию...</option>
             {versions.map((version) => (
               <option key={version.id} value={version.id}>
-                {version.device_name} - {formatDateTime(version.version_date)}
+                {version.device_hostname} - {formatDateTime(version.created_at)}
               </option>
             ))}
           </select>
           {version1Info && (
             <div className="version-info">
               <small>
-                {version1Info.device_name} | 
-                Изменено: {formatDateTime(version1Info.version_date)} | 
+                {version1Info.device_hostname} | 
                 Создано: {formatDateTime(version1Info.created_at)}
               </small>
             </div>
@@ -172,15 +166,14 @@ const ChangesTab = () => {
             <option value="">Выберите версию...</option>
             {versions.map((version) => (
               <option key={version.id} value={version.id}>
-                {version.device_name} - {formatDateTime(version.version_date)}
+                {version.device_hostname} - {formatDateTime(version.created_at)}
               </option>
             ))}
           </select>
           {version2Info && (
             <div className="version-info">
               <small>
-                {version2Info.device_name} | 
-                Изменено: {formatDateTime(version2Info.version_date)} | 
+                {version2Info.device_hostname} | 
                 Создано: {formatDateTime(version2Info.created_at)}
               </small>
             </div>
@@ -204,42 +197,61 @@ const ChangesTab = () => {
         </div>
       )}
 
-      {diffData && (() => {
-        const { leftLines, rightLines } = prepareSynchronizedDiffLines(diffData.lines);
-        
-        return (
-          <div className="diff-container">
-            <div className="diff-header">
-              <div className="diff-header-left">
-                <h3>Версия {diffData.left_version_id}</h3>
-                {version1Info && (
-                  <small>{version1Info.device_name} - {formatDateTime(version1Info.version_date)}</small>
-                )}
-              </div>
-              <div className="diff-header-right">
-                <h3>Версия {diffData.right_version_id}</h3>
-                {version2Info && (
-                  <small>{version2Info.device_name} - {formatDateTime(version2Info.version_date)}</small>
-                )}
-              </div>
+      {diffData && processedDiff && (
+        <div className="diff-container">
+          {processedDiff.identical ? (
+            <div className="diff-identical">
+              Версии идентичны — изменений нет
             </div>
+          ) : (
+            <>
+              <div className="diff-stats">
+                <span className="diff-stat-added">+{processedDiff.stats.added}</span>
+                <span className="diff-stat-removed">-{processedDiff.stats.removed}</span>
+                <span className="diff-total-lines">
+                  Всего строк: {processedDiff.totalLines}
+                </span>
+              </div>
 
-            <div className="diff-content">
-              <div className="diff-side diff-side-left">
-                <div className="diff-lines">
-                  {leftLines.map((line, index) => renderDiffLine(line, index))}
+              <div className="diff-table-header">
+                <div className="diff-header-cell">
+                  {version1Info ? `${version1Info.device_hostname} (${formatDateTime(version1Info.created_at)})` : `Версия ${diffData.left_version_id}`}
+                </div>
+                <div className="diff-header-cell">
+                  {version2Info ? `${version2Info.device_hostname} (${formatDateTime(version2Info.created_at)})` : `Версия ${diffData.right_version_id}`}
                 </div>
               </div>
 
-              <div className="diff-side diff-side-right">
-                <div className="diff-lines">
-                  {rightLines.map((line, index) => renderDiffLine(line, index))}
-                </div>
+              <div className="diff-table">
+                {processedDiff.lines.map((line, idx) => (
+                    <div key={`line-${idx}`} className={`diff-row diff-row-${line.type}`}>
+                      <div className="diff-cell diff-cell-left">
+                        <span className="diff-line-number">
+                          {line.leftLineNum || ''}
+                        </span>
+                        <span className="diff-line-content">
+                          {line.leftLineNum 
+                            ? (line.type === 'removed' ? '−' : '') + (line.content || '') 
+                            : ''}
+                        </span>
+                      </div>
+                      <div className="diff-cell diff-cell-right">
+                        <span className="diff-line-number">
+                          {line.rightLineNum || ''}
+                        </span>
+                        <span className="diff-line-content">
+                          {line.rightLineNum 
+                            ? (line.type === 'added' ? '+' : '') + (line.content || '')
+                            : ''}
+                        </span>
+                      </div>
+                    </div>
+                ))}
               </div>
-            </div>
-          </div>
-        );
-      })()}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };
