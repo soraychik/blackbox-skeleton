@@ -16,11 +16,33 @@ docker-compose up -d --build
 ./scripts/help.sh
 ```
 
-Система будет доступна по адресу: http://localhost:3000
+Система будет доступна:
+- **С nginx (по ТЗ):** http://localhost — единая точка входа (порт 80)
+- **Без nginx:** http://localhost:3001 — фронт, http://localhost:8080 — API
+
+## Nginx (reverse proxy по ТЗ)
+
+По ТЗ (п. 1.5–1.6) веб-сервер — **nginx** (reverse proxy, статика). В проекте добавлен сервис `nginx` как единая точка входа:
+
+| Путь       | Назначение                          |
+|------------|-------------------------------------|
+| `http://localhost/`      | Frontend (React)                    |
+| `http://localhost/api/`  | API (прокси на api-web:8080)        |
+
+**Запуск с nginx:** после `docker-compose up -d` открывайте http://localhost
+
+**Чтобы фронт ходил в API через nginx**, в `.env` задайте и пересоберите фронт:
+```env
+REACT_APP_API_URL=/api
+```
+Затем: `docker-compose up -d --build`
+
+Конфиг nginx: `nginx/nginx.conf`. Для HTTPS (по п. 1.9 ТЗ) позже можно добавить сертификаты и `listen 443 ssl`.
 
 ## Архитектура
 
 Система состоит из следующих компонентов:
+- **nginx** — reverse proxy, единая точка входа (порт 80)
 - Scheduler - основной сервис для мониторинга конфигурационных файлов
 - API Web - REST API для доступа к данным
 - Frontend - веб-интерфейс управления
