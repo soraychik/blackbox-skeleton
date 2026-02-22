@@ -724,13 +724,32 @@ func resolveDeviceVersionsByDate(ctx context.Context, deviceID int, date1, date2
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to resolve versions by date: %v", err)
 	}
+	lastDate, _ := getLastVersionDate(db, deviceID)
 	if !v1ID.Valid {
-		return 0, 0, fmt.Errorf("no version found for device on date %s", date1)
+		if lastDate != "" {
+			return 0, 0, fmt.Errorf("no version for date %s; last config registered: %s", date1, lastDate)
+		}
+		return 0, 0, fmt.Errorf("no version for date %s", date1)
 	}
 	if !v2ID.Valid {
-		return 0, 0, fmt.Errorf("no version found for device on date %s", date2)
+		if lastDate != "" {
+			return 0, 0, fmt.Errorf("no version for date %s; last config registered: %s", date2, lastDate)
+		}
+		return 0, 0, fmt.Errorf("no version for date %s", date2)
 	}
 	return int(v1ID.Int64), int(v2ID.Int64), nil
+}
+
+// getLastVersionDate возвращает дату (YYYY-MM-DD) последней зарегистрированной версии конфига устройства.
+func getLastVersionDate(db *sql.DB, deviceID int) (string, error) {
+	var lastDate sql.NullString
+	err := db.QueryRow(`
+		SELECT DATE_FORMAT(MAX(created_at), '%Y-%m-%d') FROM config_versions WHERE device_id = ?
+	`, deviceID).Scan(&lastDate)
+	if err != nil || !lastDate.Valid {
+		return "", err
+	}
+	return lastDate.String, nil
 }
 
 // getExportConfig — UC-4: выгрузка конфига за выбранную дату (ТЗ 2.3: GET /export/config)
@@ -771,7 +790,12 @@ func getExportConfig(c *gin.Context) {
 		deviceID, dateStr,
 	).Scan(&versionID, &hostname)
 	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No config version for this device on the given date"})
+		lastDate, _ := getLastVersionDate(db, deviceID)
+		payload := gin.H{"error": "No config for this device on the given date"}
+		if lastDate != "" {
+			payload["last_registered_date"] = lastDate
+		}
+		c.JSON(http.StatusNotFound, payload)
 		return
 	}
 	if err != nil {
@@ -818,12 +842,14 @@ type ChangeMatch struct {
 	RemovedCount   int    `json:"removed_count"`
 }
 
-// DeviceChangeResult — устройство и список подходящих изменений (ответ UC-1)
+// DeviceChangeResult — устройство и список подходящих изменений
 type DeviceChangeResult struct {
 	DeviceID   int           `json:"device_id"`
 	Hostname   string        `json:"hostname"`
 	MgmtIP     *string       `json:"mgmt_ip,omitempty"`
-	ChangeList []ChangeMatch `json:"changes"` // фронтенд ожидает "changes"
+	Vendor     *string       `json:"vendor,omitempty"`
+	Model      *string       `json:"model,omitempty"`
+	ChangeList []ChangeMatch `json:"changes"`
 }
 
 // postSearchChanges — UC-1: найти устройства, у которых конфиг изменился по шаблонам (добавились/удалились строки)
@@ -862,7 +888,7 @@ func postSearchChanges(c *gin.Context) {
 		return
 	}
 
-	deviceRows, err := db.Query("SELECT id, hostname, mgmt_ip FROM devices WHERE enabled = 1 ORDER BY id")
+	deviceRows, err := db.Query("SELECT id, hostname, mgmt_ip, vendor, model FROM devices WHERE enabled = 1 ORDER BY id")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list devices"})
 		return
@@ -873,8 +899,8 @@ func postSearchChanges(c *gin.Context) {
 	for deviceRows.Next() {
 		var deviceID int
 		var hostname string
-		var mgmtIP sql.NullString
-		if err := deviceRows.Scan(&deviceID, &hostname, &mgmtIP); err != nil {
+		var mgmtIP, vendor, model sql.NullString
+		if err := deviceRows.Scan(&deviceID, &hostname, &mgmtIP, &vendor, &model); err != nil {
 			continue
 		}
 
@@ -917,14 +943,22 @@ func postSearchChanges(c *gin.Context) {
 			}
 		}
 		if len(changeList) > 0 {
-			var ip *string
+			var ip, vdr, mdl *string
 			if mgmtIP.Valid {
 				ip = &mgmtIP.String
+			}
+			if vendor.Valid {
+				vdr = &vendor.String
+			}
+			if model.Valid {
+				mdl = &model.String
 			}
 			results = append(results, DeviceChangeResult{
 				DeviceID:   deviceID,
 				Hostname:   hostname,
 				MgmtIP:     ip,
+				Vendor:     vdr,
+				Model:      mdl,
 				ChangeList: changeList,
 			})
 		}

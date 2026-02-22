@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
+  Alert,
   Box,
   Button,
   Card,
@@ -25,7 +26,6 @@ import {
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
-  Visibility as VisibilityIcon,
   Download as DownloadIcon,
   Compare as CompareIcon,
   Close as CloseIcon,
@@ -51,6 +51,8 @@ const DeviceDetails = () => {
   const [exportDate, setExportDate] = useState('');
   const [exportLoading, setExportLoading] = useState(false);
   const [compareByDateLoading, setCompareByDateLoading] = useState(false);
+  const [compareByDateError, setCompareByDateError] = useState('');
+  const [exportError, setExportError] = useState('');
 
   useEffect(() => {
     loadData();
@@ -111,25 +113,28 @@ const DeviceDetails = () => {
     setSelectedVersions({ left: null, right: null });
   };
 
-  // UC-2: сравнение конфигурации устройства между датами
+  // Сравнение конфигурации устройства между датами
   const handleCompareByDate = async () => {
     if (!compareByDate.date1 || !compareByDate.date2) return;
+    setCompareByDateError('');
     try {
       setCompareByDateLoading(true);
       setCompareDialog({ open: true, diffData: null, loading: true });
       const diff = await getDiffByDate(id, compareByDate.date1, compareByDate.date2);
       setCompareDialog({ open: true, diffData: diff, loading: false });
     } catch (error) {
-      console.error('Compare by date failed:', error);
+      const msg = error.response?.data?.error || error.message;
+      setCompareByDateError(msg);
       setCompareDialog({ open: false, diffData: null, loading: false });
     } finally {
       setCompareByDateLoading(false);
     }
   };
 
-  // UC-4: выгрузка конфига за выбранную дату
+  // Выгрузка конфига за выбранную дату
   const handleExportByDate = async () => {
     if (!exportDate) return;
+    setExportError('');
     try {
       setExportLoading(true);
       const response = await exportConfigByDate(id, exportDate);
@@ -147,7 +152,20 @@ const DeviceDetails = () => {
       a.click();
       URL.revokeObjectURL(url);
     } catch (error) {
-      console.error('Export by date failed:', error);
+      if (error.response?.status === 404 && error.response.data instanceof Blob) {
+        try {
+          const text = await error.response.data.text();
+          const data = JSON.parse(text);
+          const msg = data.last_registered_date
+            ? `${data.error} Последняя регистрация: ${data.last_registered_date}`
+            : data.error;
+          setExportError(msg);
+        } catch {
+          setExportError(error.message);
+        }
+      } else {
+        setExportError(error.response?.data?.error || error.message);
+      }
     } finally {
       setExportLoading(false);
     }
@@ -289,7 +307,7 @@ const DeviceDetails = () => {
         <CardContent>
           <Typography variant="h6" fontWeight={600} gutterBottom>
             <CalendarTodayIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-            Сравнение по датам (UC-2)
+            Сравнение по датам
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Выберите две даты для сравнения конфигурации устройства
@@ -330,16 +348,23 @@ const DeviceDetails = () => {
                 {compareByDateLoading ? 'Сравнение...' : 'Сравнить по датам'}
               </Button>
             </Grid>
+            {compareByDateError && (
+              <Grid item xs={12}>
+                <Alert severity="warning" onClose={() => setCompareByDateError('')}>
+                  {compareByDateError}
+                </Alert>
+              </Grid>
+            )}
           </Grid>
         </CardContent>
       </Card>
 
-      {/* UC-4: Выгрузка конфига за выбранную дату */}
+      {/* Выгрузка конфига за выбранную дату */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="h6" fontWeight={600} gutterBottom>
             <FileDownloadIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-            Выгрузить конфиг за дату (UC-4)
+            Выгрузить конфиг за дату
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Скачать конфигурацию устройства на выбранную дату
@@ -366,6 +391,13 @@ const DeviceDetails = () => {
                 {exportLoading ? 'Выгрузка...' : 'Скачать конфиг'}
               </Button>
             </Grid>
+            {exportError && (
+              <Grid item xs={12}>
+                <Alert severity="warning" onClose={() => setExportError('')}>
+                  {exportError}
+                </Alert>
+              </Grid>
+            )}
           </Grid>
         </CardContent>
       </Card>
@@ -385,17 +417,21 @@ const DeviceDetails = () => {
                   <TableCell>Тип</TableCell>
                   <TableCell>Размер</TableCell>
                   <TableCell>Хэш</TableCell>
-                  <TableCell align="right">Действия</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {versions.map((version) => (
-                  <TableRow key={version.id} hover>
+                  <TableRow
+                    key={version.id}
+                    hover
+                    onClick={() => handleViewVersion(version.id)}
+                    sx={{ cursor: 'pointer' }}
+                  >
                     <TableCell>{version.id}</TableCell>
                     <TableCell>{formatDateTime(version.created_at)}</TableCell>
                     <TableCell>
                       <Chip
-                        label={version.storage_type === 'base' ? 'База' : 'Diff'}
+                        label={version.storage_type === 'base' ? 'base' : 'diff'}
                         size="small"
                         color={version.storage_type === 'base' ? 'primary' : 'secondary'}
                       />
@@ -406,19 +442,11 @@ const DeviceDetails = () => {
                         {version.version_hash?.substring(0, 12)}...
                       </Typography>
                     </TableCell>
-                    <TableCell align="right">
-                      <IconButton size="small" onClick={() => handleViewVersion(version.id)}>
-                        <VisibilityIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton size="small" onClick={() => handleDownloadVersion(version.id)}>
-                        <DownloadIcon fontSize="small" />
-                      </IconButton>
-                    </TableCell>
                   </TableRow>
                 ))}
                 {versions.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                       <Typography color="text.secondary">Нет доступных версий</Typography>
                     </TableCell>
                   </TableRow>
@@ -439,9 +467,19 @@ const DeviceDetails = () => {
         <DialogContent sx={{ p: 0 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>
             <Typography variant="h6">Версия {viewDialog.versionId}</Typography>
-            <IconButton onClick={() => setViewDialog({ open: false, content: '', versionId: null })}>
-              <CloseIcon />
-            </IconButton>
+            <Box>
+              <Button
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={() => viewDialog.versionId && handleDownloadVersion(viewDialog.versionId)}
+                sx={{ mr: 1 }}
+              >
+                Скачать
+              </Button>
+              <IconButton onClick={() => setViewDialog({ open: false, content: '', versionId: null })}>
+                <CloseIcon />
+              </IconButton>
+            </Box>
           </Box>
           <Box
             component="pre"

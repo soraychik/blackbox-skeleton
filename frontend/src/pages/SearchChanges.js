@@ -29,7 +29,7 @@ import { searchChanges, getVersionDiff } from '../utils/api';
 import ChangesTab from '../components/ChangesTab';
 
 /**
- * UC-1: Поиск устройств, у которых конфиг изменился по множественному условию
+ * Поиск устройств, у которых конфиг изменился по множественному условию
  * (добавились/удалились строки по шаблонам). ТЗ 2.1, 2.3.
  */
 const SearchChanges = () => {
@@ -96,7 +96,7 @@ const SearchChanges = () => {
   return (
     <Box>
       <Typography variant="h4" fontWeight={600} gutterBottom>
-        Поиск по изменениям (UC-1)
+        Поиск по изменениям
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
         Найти устройства, у которых конфиг изменился по условию: добавились и/или удалились строки по шаблонам (regex)
@@ -181,6 +181,8 @@ const SearchChanges = () => {
                   <TableRow>
                     <TableCell>Устройство</TableCell>
                     <TableCell>IP</TableCell>
+                    <TableCell>Вендор</TableCell>
+                    <TableCell>Модель</TableCell>
                     <TableCell>Изменения</TableCell>
                     <TableCell align="right">Действия</TableCell>
                   </TableRow>
@@ -206,6 +208,8 @@ const SearchChanges = () => {
                         </Typography>
                       </TableCell>
                       <TableCell>{row.mgmt_ip || '-'}</TableCell>
+                      <TableCell>{row.vendor || '-'}</TableCell>
+                      <TableCell>{row.model || '-'}</TableCell>
                       <TableCell>
                         {row.changes && row.changes.length > 0 ? (
                           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
@@ -237,7 +241,7 @@ const SearchChanges = () => {
                               )
                             }
                           >
-                            Дифф
+                            diff
                           </Button>
                         )}
                       </TableCell>
@@ -245,7 +249,7 @@ const SearchChanges = () => {
                   ))}
                   {results.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
                         <Typography color="text.secondary">
                           Нет устройств с изменениями по заданным шаблонам
                         </Typography>

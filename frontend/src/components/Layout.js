@@ -39,7 +39,7 @@ const menuItems = [
   { text: 'Каталог устройств', icon: <DevicesIcon />, path: '/devices' },
   { text: 'Сравнение устройств', icon: <CompareIcon />, path: '/diff' },
   { text: 'Поиск', icon: <SearchIcon />, path: '/search' },
-  { text: 'Поиск по изменениям (UC-1)', icon: <FilterListIcon />, path: '/search-changes' },
+  { text: 'Поиск по изменениям', icon: <FilterListIcon />, path: '/search-changes' },
 ];
 
 export const ThemeToggleContext = React.createContext();
