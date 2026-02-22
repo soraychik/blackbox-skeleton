@@ -150,9 +150,10 @@ func (ifp *ImprovedFileProcessor) determineStorageType(
 	stats := ifp.diffEngine.GetStats(baseContent, fileInfo.Content)
 	shouldUseDiff := stats["should_use_diff"].(bool)
 	savingsPercent := stats["savings_percent"].(float64)
-	diffSize := stats["diff_size"].(int)
+	// Сравниваем с размером базы тот же размер, что показывается в UI и пишется в original_size — несжатый патч
+	diffSizeUncompressed := stats["diff_size_uncompressed"].(int)
 
-	// База цепочки: если дифф больше или равен размеру базы — сохраняем как новую базу
+	// База цепочки: если размер патча (как в БД/таблице) >= размера базы — сохраняем как новую базу
 	var chainBaseVersion *models.ConfigVersion
 	if latestVersion.ChainBaseID != nil {
 		chainBaseVersion, _ = db.GetVersionByID(*latestVersion.ChainBaseID)
@@ -164,8 +165,8 @@ func (ifp *ImprovedFileProcessor) determineStorageType(
 	if baseOriginalSize == 0 {
 		baseOriginalSize = len(baseContent)
 	}
-	if diffSize >= baseOriginalSize {
-		log.Printf("Diff size %d >= base size %d, starting new chain", diffSize, baseOriginalSize)
+	if diffSizeUncompressed >= baseOriginalSize {
+		log.Printf("Diff size (uncompressed) %d >= base size %d, starting new chain", diffSizeUncompressed, baseOriginalSize)
 		return ifp.saveBaseVersion(ctx, fileInfo, latestVersion, latestVersion.ID)
 	}
 
