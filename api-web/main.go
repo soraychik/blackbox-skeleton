@@ -519,11 +519,12 @@ func getVersionDiff(c *gin.Context) {
 
 	diffLines := computeDiffLines(string(content1), string(content2))
 
+	// Отдаём только строки диффа — полные контенты не нужны для отображения и раздувают ответ
 	result := DiffResult{
 		LeftVersionID:  id1,
 		RightVersionID: id2,
-		LeftContent:    string(content1),
-		RightContent:   string(content2),
+		LeftContent:    "",
+		RightContent:   "",
 		Lines:          diffLines,
 	}
 

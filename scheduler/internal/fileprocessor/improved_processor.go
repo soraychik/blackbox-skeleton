@@ -141,7 +141,8 @@ func (ifp *ImprovedFileProcessor) determineStorageType(
 		return ifp.saveBaseVersion(ctx, fileInfo, latestVersion, latestVersion.ID)
 	}
 
-	baseContent, err := ifp.getVersionContent(ctx, latestVersion)
+	// Предыдущий контент = база + все диффы до latestVersion (восстановленный файл), не сырой патч
+	baseContent, err := ifp.ReconstructVersion(ctx, db, latestVersion)
 	if err != nil {
 		return ifp.saveBaseVersion(ctx, fileInfo, latestVersion, latestVersion.ID)
 	}
@@ -149,13 +150,31 @@ func (ifp *ImprovedFileProcessor) determineStorageType(
 	stats := ifp.diffEngine.GetStats(baseContent, fileInfo.Content)
 	shouldUseDiff := stats["should_use_diff"].(bool)
 	savingsPercent := stats["savings_percent"].(float64)
+	diffSize := stats["diff_size"].(int)
+
+	// База цепочки: если дифф больше или равен размеру базы — сохраняем как новую базу
+	var chainBaseVersion *models.ConfigVersion
+	if latestVersion.ChainBaseID != nil {
+		chainBaseVersion, _ = db.GetVersionByID(*latestVersion.ChainBaseID)
+	}
+	if chainBaseVersion == nil {
+		chainBaseVersion = latestVersion
+	}
+	baseOriginalSize := int(chainBaseVersion.OriginalSize)
+	if baseOriginalSize == 0 {
+		baseOriginalSize = len(baseContent)
+	}
+	if diffSize >= baseOriginalSize {
+		log.Printf("Diff size %d >= base size %d, starting new chain", diffSize, baseOriginalSize)
+		return ifp.saveBaseVersion(ctx, fileInfo, latestVersion, latestVersion.ID)
+	}
 
 	if !shouldUseDiff {
 		log.Printf("Diff savings %.1f%% below threshold, starting new chain", savingsPercent)
 		return ifp.saveBaseVersion(ctx, fileInfo, latestVersion, latestVersion.ID)
 	}
 
-	return ifp.saveDiffVersion(ctx, fileInfo, latestVersion)
+	return ifp.saveDiffVersion(ctx, fileInfo, latestVersion, baseContent)
 }
 
 func (ifp *ImprovedFileProcessor) saveBaseVersion(
@@ -203,13 +222,10 @@ func (ifp *ImprovedFileProcessor) saveDiffVersion(
 	ctx context.Context,
 	fileInfo *models.FileInfo,
 	latestVersion *models.ConfigVersion,
+	previousFullContent []byte,
 ) (storageType, storagePath string, origSize, compSize uint32, parentVersionID, chainBaseID *int, chainPosition int, err error) {
-	baseContent, err := ifp.getVersionContent(ctx, latestVersion)
-	if err != nil {
-		return "", "", 0, 0, nil, nil, 0, fmt.Errorf("failed to get base content: %w", err)
-	}
-
-	patchContent, err := ifp.diffEngine.CreateDiff(baseContent, fileInfo.Content, latestVersion.ID)
+	// previousFullContent = восстановленный контент (база + все диффы до latestVersion), храним только дельту
+	patchContent, err := ifp.diffEngine.CreateDiff(previousFullContent, fileInfo.Content, latestVersion.ID)
 	if err != nil {
 		return "", "", 0, 0, nil, nil, 0, fmt.Errorf("failed to create diff: %w", err)
 	}
@@ -285,9 +301,9 @@ func (ifp *ImprovedFileProcessor) ReconstructVersion(
 			return nil, fmt.Errorf("failed to get patch data: %w", err)
 		}
 
-		patchContent, err := ifp.diffEngine.DecompressPatch(patchData)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decompress patch: %w", err)
+		patchContent := string(patchData)
+		if decompressed, err := ifp.diffEngine.DecompressPatch(patchData); err == nil {
+			patchContent = decompressed
 		}
 
 		return ifp.diffEngine.ApplyDiff(baseContent, patchContent)
