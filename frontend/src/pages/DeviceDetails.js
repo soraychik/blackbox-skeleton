@@ -30,8 +30,10 @@ import {
   Compare as CompareIcon,
   Close as CloseIcon,
   History as HistoryIcon,
+  CalendarToday as CalendarTodayIcon,
+  FileDownload as FileDownloadIcon,
 } from '@mui/icons-material';
-import { getDeviceVersions, getVersionContent, getVersionDiff } from '../utils/api';
+import { getDeviceVersions, getVersionContent, getVersionDiff, getDiffByDate, exportConfigByDate } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
 import ChangesTab from '../components/ChangesTab';
 
@@ -45,6 +47,10 @@ const DeviceDetails = () => {
   const [compareLoading, setCompareLoading] = useState(false);
   const [viewDialog, setViewDialog] = useState({ open: false, content: '', versionId: null });
   const [compareDialog, setCompareDialog] = useState({ open: false, diffData: null, loading: false });
+  const [compareByDate, setCompareByDate] = useState({ date1: '', date2: '' });
+  const [exportDate, setExportDate] = useState('');
+  const [exportLoading, setExportLoading] = useState(false);
+  const [compareByDateLoading, setCompareByDateLoading] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -103,6 +109,48 @@ const DeviceDetails = () => {
   const closeCompareDialog = () => {
     setCompareDialog({ open: false, diffData: null, loading: false });
     setSelectedVersions({ left: null, right: null });
+  };
+
+  // UC-2: сравнение конфигурации устройства между датами
+  const handleCompareByDate = async () => {
+    if (!compareByDate.date1 || !compareByDate.date2) return;
+    try {
+      setCompareByDateLoading(true);
+      setCompareDialog({ open: true, diffData: null, loading: true });
+      const diff = await getDiffByDate(id, compareByDate.date1, compareByDate.date2);
+      setCompareDialog({ open: true, diffData: diff, loading: false });
+    } catch (error) {
+      console.error('Compare by date failed:', error);
+      setCompareDialog({ open: false, diffData: null, loading: false });
+    } finally {
+      setCompareByDateLoading(false);
+    }
+  };
+
+  // UC-4: выгрузка конфига за выбранную дату
+  const handleExportByDate = async () => {
+    if (!exportDate) return;
+    try {
+      setExportLoading(true);
+      const response = await exportConfigByDate(id, exportDate);
+      const blob = response.data;
+      const url = URL.createObjectURL(blob);
+      const disposition = response.headers['content-disposition'];
+      let filename = `config_${device?.hostname || id}_${exportDate}.txt`;
+      if (disposition) {
+        const match = /filename="?([^";\n]+)"?/.exec(disposition);
+        if (match) filename = match[1];
+      }
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Export by date failed:', error);
+    } finally {
+      setExportLoading(false);
+    }
   };
 
   if (loading) {
@@ -230,6 +278,92 @@ const DeviceDetails = () => {
                 disabled={!selectedVersions.left || !selectedVersions.right}
               >
                 Сравнить
+              </Button>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
+      {/* UC-2: Сравнение конфигурации между датами */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" fontWeight={600} gutterBottom>
+            <CalendarTodayIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+            Сравнение по датам (UC-2)
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Выберите две даты для сравнения конфигурации устройства
+          </Typography>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} sm={5}>
+              <TextField
+                fullWidth
+                size="small"
+                type="date"
+                label="Дата 1 (старая)"
+                InputLabelProps={{ shrink: true }}
+                value={compareByDate.date1}
+                onChange={(e) => setCompareByDate((prev) => ({ ...prev, date1: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12} sm={2} sx={{ textAlign: 'center' }}>
+              <CompareIcon color="action" />
+            </Grid>
+            <Grid item xs={12} sm={5}>
+              <TextField
+                fullWidth
+                size="small"
+                type="date"
+                label="Дата 2 (новая)"
+                InputLabelProps={{ shrink: true }}
+                value={compareByDate.date2}
+                onChange={(e) => setCompareByDate((prev) => ({ ...prev, date2: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <Button
+                variant="outlined"
+                startIcon={compareByDateLoading ? <CircularProgress size={20} color="inherit" /> : <CompareIcon />}
+                onClick={handleCompareByDate}
+                disabled={!compareByDate.date1 || !compareByDate.date2 || compareByDateLoading}
+              >
+                {compareByDateLoading ? 'Сравнение...' : 'Сравнить по датам'}
+              </Button>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
+      {/* UC-4: Выгрузка конфига за выбранную дату */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" fontWeight={600} gutterBottom>
+            <FileDownloadIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+            Выгрузить конфиг за дату (UC-4)
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Скачать конфигурацию устройства на выбранную дату
+          </Typography>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                size="small"
+                type="date"
+                label="Дата"
+                InputLabelProps={{ shrink: true }}
+                value={exportDate}
+                onChange={(e) => setExportDate(e.target.value)}
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <Button
+                variant="outlined"
+                startIcon={exportLoading ? <CircularProgress size={20} color="inherit" /> : <DownloadIcon />}
+                onClick={handleExportByDate}
+                disabled={!exportDate || exportLoading}
+              >
+                {exportLoading ? 'Выгрузка...' : 'Скачать конфиг'}
               </Button>
             </Grid>
           </Grid>

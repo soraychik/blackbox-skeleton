@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +47,12 @@ func main() {
 	router.GET("/versions", getVersions)
 	router.GET("/versions/:id/content", getVersionContent)
 	router.GET("/versions/diff/:id1/:id2", getVersionDiff)
+	// ТЗ 2.3: UC-2 — сравнение конфигурации устройства между датами
+	router.GET("/diff/date", getDiffByDate)
+	// ТЗ 2.3: UC-4 — выгрузка конфига за выбранную дату
+	router.GET("/export/config", getExportConfig)
+	// ТЗ 2.1 UC-1 — поиск устройств по изменениям (добавились/удалились строки по шаблонам)
+	router.POST("/search/changes", postSearchChanges)
 
 	log.Println("API Web server starting on :8080")
 	router.Run(":8080")
@@ -246,6 +253,21 @@ func getDeviceVersions(c *gin.Context) {
 	}
 	defer db.Close()
 
+	// Загружаем устройство для ответа (по ТЗ 2.3)
+	var d Device
+	err = db.QueryRow(
+		"SELECT id, hostname, mgmt_ip, vendor, model, enabled, created_at FROM devices WHERE id = ?",
+		deviceID,
+	).Scan(&d.ID, &d.Hostname, &d.MgmtIP, &d.Vendor, &d.Model, &d.Enabled, &d.CreatedAt)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Device not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get device"})
+		return
+	}
+
 	fromStr := c.Query("from")
 	toStr := c.Query("to")
 
@@ -257,16 +279,21 @@ func getDeviceVersions(c *gin.Context) {
 
 	args := []interface{}{deviceID}
 
-	if fromStr != "" {
-		fromID, err := strconv.Atoi(fromStr)
-		if err == nil {
+	// Поддержка from/to как даты YYYY-MM-DD (ТЗ 2.3: GET /devices/{id}/versions?from=...&to=...)
+	if fromStr != "" && len(fromStr) == 10 && fromStr[4] == '-' && fromStr[7] == '-' {
+		query += " AND DATE(created_at) >= ?"
+		args = append(args, fromStr)
+	} else if fromStr != "" {
+		if fromID, parseErr := strconv.Atoi(fromStr); parseErr == nil {
 			query += " AND id >= ?"
 			args = append(args, fromID)
 		}
 	}
-	if toStr != "" {
-		toID, err := strconv.Atoi(toStr)
-		if err == nil {
+	if toStr != "" && len(toStr) == 10 && toStr[4] == '-' && toStr[7] == '-' {
+		query += " AND DATE(created_at) <= ?"
+		args = append(args, toStr)
+	} else if toStr != "" {
+		if toID, parseErr := strconv.Atoi(toStr); parseErr == nil {
 			query += " AND id <= ?"
 			args = append(args, toID)
 		}
@@ -301,7 +328,7 @@ func getDeviceVersions(c *gin.Context) {
 		versions = append(versions, v)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"versions": versions})
+	c.JSON(http.StatusOK, gin.H{"device": d, "versions": versions})
 }
 
 func getVersionContent(c *gin.Context) {
@@ -577,4 +604,411 @@ func computeDiffLines(text1, text2 string) []DiffLine {
 	}
 
 	return result
+}
+
+// getDiffByDate — UC-2: сравнение конфигурации устройства между датами (ТЗ 2.3: GET /diff/date)
+// Поддерживает: ?deviceId=...&a=verId1&b=verId2  или  ?deviceId=...&date1=YYYY-MM-DD&date2=YYYY-MM-DD
+func getDiffByDate(c *gin.Context) {
+	deviceIDStr := c.Query("deviceId")
+	if deviceIDStr == "" {
+		deviceIDStr = c.Query("device_id")
+	}
+	if deviceIDStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "deviceId is required"})
+		return
+	}
+	deviceID, err := strconv.Atoi(deviceIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid deviceId"})
+		return
+	}
+
+	var id1, id2 int
+	date1 := c.Query("date1")
+	date2 := c.Query("date2")
+	aStr := c.Query("a")
+	bStr := c.Query("b")
+
+	if aStr != "" && bStr != "" {
+		id1, err = strconv.Atoi(aStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid version id a"})
+			return
+		}
+		id2, err = strconv.Atoi(bStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid version id b"})
+			return
+		}
+	} else if date1 != "" && date2 != "" {
+		id1, id2, err = resolveDeviceVersionsByDate(c.Request.Context(), deviceID, date1, date2)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Provide either a&b (version ids) or date1&date2 (YYYY-MM-DD)"})
+		return
+	}
+
+	db, err := NewDB()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
+		return
+	}
+	defer db.Close()
+
+	v1, err := getVersionByID(db, id1)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Version a not found"})
+		return
+	}
+	v2, err := getVersionByID(db, id2)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Version b not found"})
+		return
+	}
+	if v1.DeviceID != deviceID || v2.DeviceID != deviceID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Versions must belong to the given device"})
+		return
+	}
+
+	minioClient, err := storage.NewMinIOImprovedClient()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to connect to MinIO: %v", err)})
+		return
+	}
+
+	content1, err := reconstructVersionContent(c.Request.Context(), db, minioClient, v1)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get content 1: %v", err)})
+		return
+	}
+	content2, err := reconstructVersionContent(c.Request.Context(), db, minioClient, v2)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get content 2: %v", err)})
+		return
+	}
+
+	diffLines := computeDiffLines(string(content1), string(content2))
+	result := DiffResult{
+		LeftVersionID:  id1,
+		RightVersionID: id2,
+		LeftContent:    "",
+		RightContent:   "",
+		Lines:          diffLines,
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func resolveDeviceVersionsByDate(ctx context.Context, deviceID int, date1, date2 string) (verID1, verID2 int, err error) {
+	db, err := NewDB()
+	if err != nil {
+		return 0, 0, fmt.Errorf("database connection failed")
+	}
+	defer db.Close()
+
+	// Версия «на дату» — последняя версия с created_at в эту дату (по ТЗ — «конфиг за выбранную дату»)
+	for _, d := range []string{date1, date2} {
+		if len(d) != 10 || d[4] != '-' || d[7] != '-' {
+			return 0, 0, fmt.Errorf("invalid date format, use YYYY-MM-DD")
+		}
+	}
+
+	var v1ID, v2ID sql.NullInt64
+	err = db.QueryRowContext(ctx, `
+		SELECT (SELECT id FROM config_versions WHERE device_id = ? AND DATE(created_at) = ? ORDER BY created_at DESC LIMIT 1) AS v1,
+		       (SELECT id FROM config_versions WHERE device_id = ? AND DATE(created_at) = ? ORDER BY created_at DESC LIMIT 1) AS v2`,
+		deviceID, date1, deviceID, date2,
+	).Scan(&v1ID, &v2ID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to resolve versions by date: %v", err)
+	}
+	if !v1ID.Valid {
+		return 0, 0, fmt.Errorf("no version found for device on date %s", date1)
+	}
+	if !v2ID.Valid {
+		return 0, 0, fmt.Errorf("no version found for device on date %s", date2)
+	}
+	return int(v1ID.Int64), int(v2ID.Int64), nil
+}
+
+// getExportConfig — UC-4: выгрузка конфига за выбранную дату (ТЗ 2.3: GET /export/config)
+func getExportConfig(c *gin.Context) {
+	deviceIDStr := c.Query("deviceId")
+	if deviceIDStr == "" {
+		deviceIDStr = c.Query("device_id")
+	}
+	dateStr := c.Query("date")
+	if deviceIDStr == "" || dateStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "deviceId and date (YYYY-MM-DD) are required"})
+		return
+	}
+	if len(dateStr) != 10 || dateStr[4] != '-' || dateStr[7] != '-' {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "date must be YYYY-MM-DD"})
+		return
+	}
+	deviceID, err := strconv.Atoi(deviceIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid deviceId"})
+		return
+	}
+
+	db, err := NewDB()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
+		return
+	}
+	defer db.Close()
+
+	var versionID int
+	var hostname string
+	err = db.QueryRowContext(c.Request.Context(), `
+		SELECT cv.id, d.hostname FROM config_versions cv
+		JOIN devices d ON d.id = cv.device_id
+		WHERE cv.device_id = ? AND DATE(cv.created_at) = ?
+		ORDER BY cv.created_at DESC LIMIT 1`,
+		deviceID, dateStr,
+	).Scan(&versionID, &hostname)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No config version for this device on the given date"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get version"})
+		return
+	}
+
+	version, err := getVersionByID(db, versionID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Version not found"})
+		return
+	}
+	minioClient, err := storage.NewMinIOImprovedClient()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to connect to MinIO: %v", err)})
+		return
+	}
+	content, err := reconstructVersionContent(c.Request.Context(), db, minioClient, version)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get config content: %v", err)})
+		return
+	}
+
+	filename := fmt.Sprintf("config_%s_%s.txt", strings.ReplaceAll(hostname, " ", "_"), dateStr)
+	c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	c.Data(http.StatusOK, "text/plain", content)
+}
+
+// SearchChangesRequest — тело POST /search/changes (UC-1)
+type SearchChangesRequest struct {
+	AddedPatterns   []string `json:"added_patterns"`
+	RemovedPatterns []string `json:"removed_patterns"`
+	FromDate        string   `json:"from_date"`
+	ToDate          string   `json:"to_date"`
+}
+
+// ChangeMatch — одно совпадение изменений по устройству
+type ChangeMatch struct {
+	LeftVersionID  int    `json:"left_version_id"`
+	RightVersionID int    `json:"right_version_id"`
+	LeftDate       string `json:"left_date"`
+	RightDate      string `json:"right_date"`
+	AddedCount     int    `json:"added_count"`
+	RemovedCount   int    `json:"removed_count"`
+}
+
+// DeviceChangeResult — устройство и список подходящих изменений (ответ UC-1)
+type DeviceChangeResult struct {
+	DeviceID   int           `json:"device_id"`
+	Hostname   string        `json:"hostname"`
+	MgmtIP     *string       `json:"mgmt_ip,omitempty"`
+	ChangeList []ChangeMatch `json:"changes"` // фронтенд ожидает "changes"
+}
+
+// postSearchChanges — UC-1: найти устройства, у которых конфиг изменился по шаблонам (добавились/удалились строки)
+func postSearchChanges(c *gin.Context) {
+	var req SearchChangesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+	if len(req.AddedPatterns) == 0 && len(req.RemovedPatterns) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "At least one of added_patterns or removed_patterns is required"})
+		return
+	}
+
+	addedRegex, err := compilePatterns(req.AddedPatterns)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid added_patterns: %v", err)})
+		return
+	}
+	removedRegex, err := compilePatterns(req.RemovedPatterns)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid removed_patterns: %v", err)})
+		return
+	}
+
+	db, err := NewDB()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
+		return
+	}
+	defer db.Close()
+
+	minioClient, err := storage.NewMinIOImprovedClient()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to connect to MinIO: %v", err)})
+		return
+	}
+
+	deviceRows, err := db.Query("SELECT id, hostname, mgmt_ip FROM devices WHERE enabled = 1 ORDER BY id")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list devices"})
+		return
+	}
+	defer deviceRows.Close()
+
+	var results []DeviceChangeResult
+	for deviceRows.Next() {
+		var deviceID int
+		var hostname string
+		var mgmtIP sql.NullString
+		if err := deviceRows.Scan(&deviceID, &hostname, &mgmtIP); err != nil {
+			continue
+		}
+
+		versions, err := getDeviceVersionPairs(db, deviceID, req.FromDate, req.ToDate)
+		if err != nil {
+			log.Printf("getDeviceVersionPairs device %d: %v", deviceID, err)
+			continue
+		}
+
+		var changeList []ChangeMatch
+		for _, pair := range versions {
+			content1, err := reconstructVersionContent(c.Request.Context(), db, minioClient, pair.Left)
+			if err != nil {
+				continue
+			}
+			content2, err := reconstructVersionContent(c.Request.Context(), db, minioClient, pair.Right)
+			if err != nil {
+				continue
+			}
+			diffLines := computeDiffLines(string(content1), string(content2))
+			var addedLines, removedLines []string
+			for _, ln := range diffLines {
+				if ln.Type == "added" {
+					addedLines = append(addedLines, ln.Content)
+				} else if ln.Type == "removed" {
+					removedLines = append(removedLines, ln.Content)
+				}
+			}
+			addedOK := len(addedRegex) == 0 || anyLineMatches(addedLines, addedRegex)
+			removedOK := len(removedRegex) == 0 || anyLineMatches(removedLines, removedRegex)
+			if addedOK && removedOK {
+				changeList = append(changeList, ChangeMatch{
+					LeftVersionID:  pair.Left.ID,
+					RightVersionID: pair.Right.ID,
+					LeftDate:       pair.Left.CreatedAt.Format("2006-01-02"),
+					RightDate:      pair.Right.CreatedAt.Format("2006-01-02"),
+					AddedCount:     len(addedLines),
+					RemovedCount:   len(removedLines),
+				})
+			}
+		}
+		if len(changeList) > 0 {
+			var ip *string
+			if mgmtIP.Valid {
+				ip = &mgmtIP.String
+			}
+			results = append(results, DeviceChangeResult{
+				DeviceID:   deviceID,
+				Hostname:   hostname,
+				MgmtIP:     ip,
+				ChangeList: changeList,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"devices": results})
+}
+
+func compilePatterns(patterns []string) ([]*regexp.Regexp, error) {
+	var out []*regexp.Regexp
+	for _, p := range patterns {
+		if p == "" {
+			continue
+		}
+		re, err := regexp.Compile(p)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, re)
+	}
+	return out, nil
+}
+
+func anyLineMatches(lines []string, res []*regexp.Regexp) bool {
+	for _, line := range lines {
+		for _, re := range res {
+			if re.MatchString(line) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type versionPair struct {
+	Left  *ConfigVersion
+	Right *ConfigVersion
+}
+
+func getDeviceVersionPairs(db *sql.DB, deviceID int, fromDate, toDate string) ([]versionPair, error) {
+	query := `SELECT id, device_id, version_hash, storage_type, storage_path, 
+		       parent_version_id, chain_base_id, chain_position, 
+		       original_size, compressed_size, created_at 
+		FROM config_versions WHERE device_id = ?`
+	args := []interface{}{deviceID}
+	if fromDate != "" && len(fromDate) == 10 {
+		query += " AND DATE(created_at) >= ?"
+		args = append(args, fromDate)
+	}
+	if toDate != "" && len(toDate) == 10 {
+		query += " AND DATE(created_at) <= ?"
+		args = append(args, toDate)
+	}
+	query += " ORDER BY created_at ASC"
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var versions []*ConfigVersion
+	for rows.Next() {
+		var v ConfigVersion
+		var parentID, chainBaseID sql.NullInt32
+		if err := rows.Scan(&v.ID, &v.DeviceID, &v.VersionHash, &v.StorageType, &v.StoragePath,
+			&parentID, &chainBaseID, &v.ChainPosition, &v.OriginalSize, &v.CompressedSize, &v.CreatedAt); err != nil {
+			return nil, err
+		}
+		if parentID.Valid {
+			pid := int(parentID.Int32)
+			v.ParentVersionID = &pid
+		}
+		if chainBaseID.Valid {
+			cid := int(chainBaseID.Int32)
+			v.ChainBaseID = &cid
+		}
+		vCopy := v
+		versions = append(versions, &vCopy)
+	}
+
+	var pairs []versionPair
+	for i := 0; i+1 < len(versions); i++ {
+		pairs = append(pairs, versionPair{Left: versions[i], Right: versions[i+1]})
+	}
+	return pairs, nil
 }
