@@ -263,7 +263,7 @@ const DeviceDetails = () => {
                 <MenuItem value="">Выберите версию...</MenuItem>
                 {versions.map((v) => (
                   <MenuItem key={v.id} value={v.id}>
-                    {formatDateTime(v.created_at)} ({v.storage_type})
+                    {formatDateTime(v.created_at)}
                   </MenuItem>
                 ))}
               </TextField>
@@ -283,7 +283,7 @@ const DeviceDetails = () => {
                 <MenuItem value="">Выберите версию...</MenuItem>
                 {versions.map((v) => (
                   <MenuItem key={v.id} value={v.id}>
-                    {formatDateTime(v.created_at)} ({v.storage_type})
+                    {formatDateTime(v.created_at)}
                   </MenuItem>
                 ))}
               </TextField>
@@ -412,11 +412,8 @@ const DeviceDetails = () => {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>ID</TableCell>
                   <TableCell>Дата</TableCell>
-                  <TableCell>Тип</TableCell>
                   <TableCell>Размер</TableCell>
-                  <TableCell>Хэш</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -427,26 +424,13 @@ const DeviceDetails = () => {
                     onClick={() => handleViewVersion(version.id)}
                     sx={{ cursor: 'pointer' }}
                   >
-                    <TableCell>{version.id}</TableCell>
                     <TableCell>{formatDateTime(version.created_at)}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={version.storage_type === 'base' ? 'base' : 'diff'}
-                        size="small"
-                        color={version.storage_type === 'base' ? 'primary' : 'secondary'}
-                      />
-                    </TableCell>
-                    <TableCell>{version.original_size ? `${version.original_size} байт` : '-'}</TableCell>
-                    <TableCell>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                        {version.version_hash?.substring(0, 12)}...
-                      </Typography>
-                    </TableCell>
+                    <TableCell >{version.original_size ? (version.original_size < 1024 ? `${version.original_size} байт` : `${(version.original_size / 1024).toFixed(1)} КБ`) : '-'}</TableCell>
                   </TableRow>
                 ))}
                 {versions.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={2} align="center" sx={{ py: 4 }}>
                       <Typography color="text.secondary">Нет доступных версий</Typography>
                     </TableCell>
                   </TableRow>
@@ -466,7 +450,7 @@ const DeviceDetails = () => {
       >
         <DialogContent sx={{ p: 0 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>
-            <Typography variant="h6">Версия {viewDialog.versionId}</Typography>
+            <Typography variant="h6">Просмотр конфигурации</Typography>
             <Box>
               <Button
                 size="small"

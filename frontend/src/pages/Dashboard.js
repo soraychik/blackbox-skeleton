@@ -188,10 +188,9 @@ const Dashboard = () => {
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell>Устройство</TableCell>
+                    <TableCell sx={{ width: '80%' }}>Устройство</TableCell>
                     <TableCell align="center">Изменений</TableCell>
-                    <TableCell>Последнее изменение</TableCell>
-                    <TableCell align="center">Действия</TableCell>
+                    <TableCell align="right">Последнее изменение</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -208,25 +207,14 @@ const Dashboard = () => {
                       <TableCell align="center">
                         <Chip label={item.changeCount} color="primary" size="small" />
                       </TableCell>
-                      <TableCell>
+                      <TableCell align="right">
                         {item.lastChange ? formatDateTime(item.lastChange) : '-'}
-                      </TableCell>
-                      <TableCell align="center">
-                        <Chip
-                          label="Подробнее"
-                          size="small"
-                          variant="outlined"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(`/devices/${item.deviceId}`);
-                          }}
-                        />
                       </TableCell>
                     </TableRow>
                   ))}
                   {topDevices.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={3} align="center" sx={{ py: 4 }}>
                         <Typography color="text.secondary">
                           Нет данных об изменениях
                         </Typography>

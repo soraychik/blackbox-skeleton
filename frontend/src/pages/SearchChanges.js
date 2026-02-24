@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -7,6 +7,7 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  Collapse,
   Dialog,
   DialogContent,
   Grid,
@@ -22,8 +23,9 @@ import {
 } from '@mui/material';
 import {
   Search as SearchIcon,
-  Compare as CompareIcon,
   Close as CloseIcon,
+  KeyboardArrowDown as KeyboardArrowDownIcon,
+  KeyboardArrowUp as KeyboardArrowUpIcon,
 } from '@mui/icons-material';
 import { searchChanges, getVersionDiff } from '../utils/api';
 import ChangesTab from '../components/ChangesTab';
@@ -33,7 +35,6 @@ import ChangesTab from '../components/ChangesTab';
  * (добавились/удалились строки по шаблонам). ТЗ 2.1, 2.3.
  */
 const SearchChanges = () => {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [params, setParams] = useState({
     added_patterns: '',
@@ -48,6 +49,14 @@ const SearchChanges = () => {
     data: null,
     deviceId: null,
   });
+  const [expandedRows, setExpandedRows] = useState({});
+
+  const toggleRow = (deviceId) => {
+    setExpandedRows((prev) => ({
+      ...prev,
+      [deviceId]: !prev[deviceId],
+    }));
+  };
 
   const handleSearch = async () => {
     const added = params.added_patterns
@@ -179,73 +188,92 @@ const SearchChanges = () => {
               <Table>
                 <TableHead>
                   <TableRow>
+                    <TableCell sx={{ width: 50 }} />
                     <TableCell>Устройство</TableCell>
                     <TableCell>IP</TableCell>
                     <TableCell>Вендор</TableCell>
                     <TableCell>Модель</TableCell>
-                    <TableCell>Изменения</TableCell>
-                    <TableCell align="right">Действия</TableCell>
+                    <TableCell align="right">Изменений</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {results.map((row) => (
-                    <TableRow key={row.device_id} hover>
-                      <TableCell>
-                        <Typography
-                          fontWeight={500}
-                          component="button"
-                          onClick={() => navigate(`/devices/${row.device_id}`)}
-                          sx={{
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: 'primary.main',
-                            textDecoration: 'underline',
-                            '&:hover': { color: 'primary.dark' },
-                          }}
-                        >
-                          {row.hostname}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>{row.mgmt_ip || '-'}</TableCell>
-                      <TableCell>{row.vendor || '-'}</TableCell>
-                      <TableCell>{row.model || '-'}</TableCell>
-                      <TableCell>
-                        {row.changes && row.changes.length > 0 ? (
-                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                            {row.changes.slice(0, 3).map((ch, idx) => (
-                              <Chip
-                                key={idx}
-                                size="small"
-                                label={`${ch.left_date}→${ch.right_date}: +${ch.added_count}/-${ch.removed_count}`}
-                                variant="outlined"
-                              />
-                            ))}
-                            {row.changes.length > 3 && (
-                              <Chip size="small" label={`+${row.changes.length - 3} ещё`} />
-                            )}
-                          </Box>
-                        ) : (
-                          '-'
-                        )}
-                      </TableCell>
-                      <TableCell align="right">
-                        {row.changes && row.changes[0] && (
-                          <Button
-                            size="small"
-                            startIcon={<CompareIcon />}
-                            onClick={() =>
-                              handleShowDiff(
-                                row.changes[0].left_version_id,
-                                row.changes[0].right_version_id
-                              )
-                            }
+                    <React.Fragment key={row.device_id}>
+                      <TableRow
+                        hover
+                        onClick={() => toggleRow(row.device_id)}
+                        sx={{ cursor: 'pointer' }}
+                      >
+                        <TableCell>
+                          {expandedRows[row.device_id] ? (
+                            <KeyboardArrowUpIcon />
+                          ) : (
+                            <KeyboardArrowDownIcon />
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Typography
+                            fontWeight={500}
+                            component={Link}
+                            to={`/devices/${row.device_id}`}
+                            onClick={(e) => e.stopPropagation()}
+                            sx={{
+                              color: 'primary.main',
+                              textDecoration: 'underline',
+                              '&:hover': { color: 'primary.dark' },
+                            }}
                           >
-                            diff
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
+                            {row.hostname}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>{row.mgmt_ip || '-'}</TableCell>
+                        <TableCell>{row.vendor || '-'}</TableCell>
+                        <TableCell>{row.model || '-'}</TableCell>
+                        <TableCell align="right">
+                          <Chip
+                            size="small"
+                            label={row.changes?.length || 0}
+                            color="primary"
+                            variant="outlined"
+                          />
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell colSpan={6} sx={{ py: 0, border: 0 }}>
+                          <Collapse in={expandedRows[row.device_id]} timeout="auto" unmountOnExit>
+                            <Box sx={{ bgcolor: 'action.hover', px: 2, py: 1 }}>
+                              {row.changes?.map((ch, idx) => (
+                                <Box
+                                  key={idx}
+                                  onClick={() => handleShowDiff(ch.left_version_id, ch.right_version_id)}
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 2,
+                                    py: 1,
+                                    cursor: 'pointer',
+                                    borderBottom: idx < row.changes.length - 1 ? '1px solid' : 'none',
+                                    borderColor: 'divider',
+                                    '&:hover': { bgcolor: 'action.selected' },
+                                    borderRadius: 1,
+                                    px: 1,
+                                  }}
+                                >
+                                  <Typography variant="body2" sx={{ minWidth: 200 }}>
+                                    {ch.left_date} → {ch.right_date}
+                                  </Typography>
+                                  <Chip size="small" label={`+${ch.added_count}`} color="success" variant="outlined" />
+                                  <Chip size="small" label={`-${ch.removed_count}`} color="error" variant="outlined" />
+                                  <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto' }}>
+                                    Нажмите для просмотра diff →
+                                  </Typography>
+                                </Box>
+                              ))}
+                            </Box>
+                          </Collapse>
+                        </TableCell>
+                      </TableRow>
+                    </React.Fragment>
                   ))}
                   {results.length === 0 && (
                     <TableRow>

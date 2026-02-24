@@ -1,9 +1,165 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useTheme } from '@mui/material/styles';
+import {
+  Box,
+  Button,
+  Typography,
+  Chip,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  CircularProgress,
+} from '@mui/material';
 import { getVersions, getVersionDiff } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
-import './ChangesTab.css';
+
+const DiffRow = ({ line, theme }) => {
+  const isDark = theme.palette.mode === 'dark';
+
+  const getBackgroundColor = () => {
+    if (line.type === 'added') {
+      return isDark ? 'rgba(46, 160, 67, 0.15)' : '#e6ffed';
+    }
+    if (line.type === 'removed') {
+      return isDark ? 'rgba(248, 81, 73, 0.15)' : '#ffeef0';
+    }
+    return 'background.paper';
+  };
+
+  const getTextColor = () => {
+    if (line.type === 'added') return 'success.main';
+    if (line.type === 'removed') return 'error.main';
+    return 'text.primary';
+  };
+
+  return (
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        bgcolor: getBackgroundColor(),
+      }}
+    >
+      <Box
+        sx={{
+          display: 'flex',
+          borderRight: 1,
+          borderColor: 'divider',
+          minHeight: 20,
+        }}
+      >
+        <Box
+          sx={{
+            width: 40,
+            minWidth: 40,
+            px: 1,
+            textAlign: 'right',
+            color: 'text.secondary',
+            bgcolor: line.type === 'removed' ? getBackgroundColor() : 'rgba(0,0,0,0.02)',
+            userSelect: 'none',
+            borderRight: 1,
+            borderColor: 'divider',
+            flexShrink: 0,
+            fontFamily: 'monospace',
+            fontSize: '0.75rem',
+            lineHeight: '20px',
+          }}
+        >
+          {line.leftLineNum || ''}
+        </Box>
+        <Box
+          sx={{
+            flex: 1,
+            px: 1,
+            whiteSpace: 'pre',
+            overflowX: 'auto',
+            color: getTextColor(),
+            fontFamily: 'monospace',
+            fontSize: '0.75rem',
+            lineHeight: '20px',
+          }}
+        >
+          {line.leftLineNum
+            ? (line.type === 'removed' ? '−' : '') + (line.content || '')
+            : ''}
+        </Box>
+      </Box>
+      <Box
+        sx={{
+          display: 'flex',
+          minHeight: 20,
+        }}
+      >
+        <Box
+          sx={{
+            width: 40,
+            minWidth: 40,
+            px: 1,
+            textAlign: 'right',
+            color: 'text.secondary',
+            bgcolor: line.type === 'added' ? getBackgroundColor() : 'rgba(0,0,0,0.02)',
+            userSelect: 'none',
+            borderRight: 1,
+            borderColor: 'divider',
+            flexShrink: 0,
+            fontFamily: 'monospace',
+            fontSize: '0.75rem',
+            lineHeight: '20px',
+          }}
+        >
+          {line.rightLineNum || ''}
+        </Box>
+        <Box
+          sx={{
+            flex: 1,
+            px: 1,
+            whiteSpace: 'pre',
+            overflowX: 'auto',
+            color: getTextColor(),
+            fontFamily: 'monospace',
+            fontSize: '0.75rem',
+            lineHeight: '20px',
+          }}
+        >
+          {line.rightLineNum
+            ? (line.type === 'added' ? '+' : '') + (line.content || '')
+            : ''}
+        </Box>
+      </Box>
+    </Box>
+  );
+};
+
+const DiffStats = ({ stats, totalLines, theme }) => (
+  <Box
+    sx={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 1.5,
+      px: 2,
+      py: 1,
+      bgcolor: 'action.hover',
+      borderBottom: 1,
+      borderColor: 'divider',
+      fontFamily: 'monospace',
+      fontSize: '0.8125rem',
+    }}
+  >
+    <Typography sx={{ color: 'success.main', fontWeight: 600 }}>
+      +{stats.added}
+    </Typography>
+    <Typography sx={{ color: 'error.main', fontWeight: 600 }}>
+      -{stats.removed}
+    </Typography>
+    <Typography sx={{ color: 'text.secondary', fontSize: '0.75rem', ml: 'auto' }}>
+      Всего строк: {totalLines}
+    </Typography>
+  </Box>
+);
 
 const ChangesTab = ({ embedded = false, initialDiffData = null }) => {
+  const theme = useTheme();
   const [versions, setVersions] = useState([]);
   const [loading, setLoading] = useState(!embedded);
   const [error, setError] = useState(null);
@@ -20,7 +176,7 @@ const ChangesTab = ({ embedded = false, initialDiffData = null }) => {
       const data = await getVersions();
       setVersions(data);
     } catch (err) {
-      const errorMessage = err.response 
+      const errorMessage = err.response
         ? `Ошибка ${err.response.status}: ${err.response.data?.error || err.message}`
         : err.message || 'Не удалось подключиться к серверу. Проверьте, что API сервер запущен.';
       setError('Ошибка при загрузке данных: ' + errorMessage);
@@ -57,7 +213,7 @@ const ChangesTab = ({ embedded = false, initialDiffData = null }) => {
       const diff = await getVersionDiff(selectedVersion1, selectedVersion2);
       setDiffData(diff);
     } catch (err) {
-      const errorMessage = err.response 
+      const errorMessage = err.response
         ? `Ошибка ${err.response.status}: ${err.response.data?.error || err.message}`
         : err.message || 'Не удалось получить diff';
       setDiffError('Ошибка при получении diff: ' + errorMessage);
@@ -77,7 +233,7 @@ const ChangesTab = ({ embedded = false, initialDiffData = null }) => {
     }
 
     const lines = diffData.lines;
-    
+
     const stats = {
       added: 0,
       removed: 0,
@@ -113,17 +269,21 @@ const ChangesTab = ({ embedded = false, initialDiffData = null }) => {
   }, [diffData]);
 
   if (loading) {
-    return <div className="loading">Загрузка версий...</div>;
+    return (
+      <Box sx={{ p: 2, textAlign: 'center' }}>
+        <Typography>Загрузка версий...</Typography>
+      </Box>
+    );
   }
 
   if (error) {
     return (
-      <div className="error">
-        <p>{error}</p>
-        <button onClick={loadVersions} style={{ marginTop: '10px', padding: '8px 16px', cursor: 'pointer' }}>
+      <Box sx={{ p: 2 }}>
+        <Typography color="error">{error}</Typography>
+        <Button onClick={loadVersions} sx={{ mt: 1 }} variant="outlined">
           Повторить
-        </button>
-      </div>
+        </Button>
+      </Box>
     );
   }
 
@@ -131,139 +291,152 @@ const ChangesTab = ({ embedded = false, initialDiffData = null }) => {
   const version2Info = selectedVersion2 ? getVersionInfo(selectedVersion2) : null;
 
   return (
-    <div className="changes-container">
+    <Box
+      sx={{
+        bgcolor: 'background.paper',
+        borderRadius: 2,
+        boxShadow: 1,
+        p: 3,
+      }}
+    >
       {!embedded && (
         <>
-          <div className="changes-header">
-            <h2>Сравнение версий конфигов</h2>
-          </div>
+          <Box sx={{ mb: 3, textAlign: 'center' }}>
+            <Typography variant="h5" sx={{ color: 'text.primary', mb: 1 }}>
+              Сравнение версий конфигов
+            </Typography>
+          </Box>
 
-          <div className="version-selectors">
-            <div className="version-selector">
-              <label htmlFor="version1">Версия 1 (левая):</label>
-              <select
-                id="version1"
-                value={selectedVersion1 || ''}
-                onChange={(e) => setSelectedVersion1(e.target.value)}
-                className="version-select"
-              >
-                <option value="">Выберите версию...</option>
-                {versions.map((version) => (
-                  <option key={version.id} value={version.id}>
-                    {version.device_hostname} - {formatDateTime(version.created_at)}
-                  </option>
-                ))}
-              </select>
-              {version1Info && (
-                <div className="version-info">
-                  <small>
-                    {version1Info.device_hostname} | 
-                    Создано: {formatDateTime(version1Info.created_at)}
-                  </small>
-                </div>
-              )}
-            </div>
-
-            <div className="version-selector">
-              <label htmlFor="version2">Версия 2 (правая):</label>
-              <select
-                id="version2"
-                value={selectedVersion2 || ''}
-            onChange={(e) => setSelectedVersion2(e.target.value)}
-            className="version-select"
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+              gap: 2.5,
+              mb: 2.5,
+            }}
           >
-            <option value="">Выберите версию...</option>
-            {versions.map((version) => (
-              <option key={version.id} value={version.id}>
-                {version.device_hostname} - {formatDateTime(version.created_at)}
-              </option>
-            ))}
-          </select>
-          {version2Info && (
-            <div className="version-info">
-              <small>
-                {version2Info.device_hostname} | 
-                Создано: {formatDateTime(version2Info.created_at)}
-              </small>
-            </div>
-          )}
-        </div>
-      </div>
+            <FormControl fullWidth>
+              <InputLabel id="version1-label">Версия 1 (левая)</InputLabel>
+              <Select
+                labelId="version1-label"
+                value={selectedVersion1 || ''}
+                label="Версия 1 (левая)"
+                onChange={(e) => setSelectedVersion1(e.target.value)}
+              >
+                <MenuItem value="">Выберите версию...</MenuItem>
+                {versions.map((version) => (
+                  <MenuItem key={version.id} value={version.id}>
+                    {version.device_hostname} - {formatDateTime(version.created_at)}
+                  </MenuItem>
+                ))}
+              </Select>
+              {version1Info && (
+                <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1, fontSize: '0.75rem' }}>
+                  {version1Info.device_hostname} | Создано: {formatDateTime(version1Info.created_at)}
+                </Typography>
+              )}
+            </FormControl>
 
-      <div className="compare-button-container">
-        <button
-          onClick={handleCompare}
-          disabled={!selectedVersion1 || !selectedVersion2 || diffLoading}
-          className="compare-button"
-        >
-          {diffLoading ? 'Сравнение...' : 'Сравнить версии'}
-        </button>
-      </div>
+            <FormControl fullWidth>
+              <InputLabel id="version2-label">Версия 2 (правая)</InputLabel>
+              <Select
+                labelId="version2-label"
+                value={selectedVersion2 || ''}
+                label="Версия 2 (правая)"
+                onChange={(e) => setSelectedVersion2(e.target.value)}
+              >
+                <MenuItem value="">Выберите версию...</MenuItem>
+                {versions.map((version) => (
+                  <MenuItem key={version.id} value={version.id}>
+                    {version.device_hostname} - {formatDateTime(version.created_at)}
+                  </MenuItem>
+                ))}
+              </Select>
+              {version2Info && (
+                <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1, fontSize: '0.75rem' }}>
+                  {version2Info.device_hostname} | Создано: {formatDateTime(version2Info.created_at)}
+                </Typography>
+              )}
+            </FormControl>
+          </Box>
+
+          <Box sx={{ display: 'flex', justifyContent: 'center', my: 2.5 }}>
+            <Button
+              variant="contained"
+              onClick={handleCompare}
+              disabled={!selectedVersion1 || !selectedVersion2 || diffLoading}
+              sx={{
+                px: 3,
+                py: 1.5,
+                bgcolor: 'text.primary',
+                '&:hover': { bgcolor: 'text.secondary' },
+                '&:disabled': { bgcolor: 'action.disabledBackground' },
+              }}
+            >
+              {diffLoading ? 'Сравнение...' : 'Сравнить версии'}
+            </Button>
+          </Box>
         </>
       )}
 
       {diffError && (
-        <div className="error" style={{ marginTop: '20px' }}>
-          {diffError}
-        </div>
+        <Box sx={{ mt: 2.5 }}>
+          <Typography color="error">{diffError}</Typography>
+        </Box>
       )}
 
       {diffData && processedDiff && (
-        <div className="diff-container">
+        <Box
+          sx={{
+            mt: 3.75,
+            border: 1,
+            borderColor: 'divider',
+            borderRadius: 1.5,
+            overflow: 'hidden',
+          }}
+        >
           {processedDiff.identical ? (
-            <div className="diff-identical">
+            <Box
+              sx={{
+                p: 5,
+                textAlign: 'center',
+                color: 'text.secondary',
+                bgcolor: 'action.hover',
+              }}
+            >
               Версии идентичны — изменений нет
-            </div>
+            </Box>
           ) : (
             <>
-              <div className="diff-stats">
-                <span className="diff-stat-added">+{processedDiff.stats.added}</span>
-                <span className="diff-stat-removed">-{processedDiff.stats.removed}</span>
-                <span className="diff-total-lines">
-                  Всего строк: {processedDiff.totalLines}
-                </span>
-              </div>
+              <DiffStats stats={processedDiff.stats} totalLines={processedDiff.totalLines} theme={theme} />
 
-              <div className="diff-table-header">
-                <div className="diff-header-cell">
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+                  bgcolor: 'action.hover',
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                }}
+              >
+                <Box sx={{ p: 1, fontSize: '0.75rem', fontWeight: 600, color: 'text.secondary' }}>
                   {version1Info ? `${version1Info.device_hostname} (${formatDateTime(version1Info.created_at)})` : `Версия ${diffData.left_version_id}`}
-                </div>
-                <div className="diff-header-cell">
+                </Box>
+                <Box sx={{ p: 1, fontSize: '0.75rem', fontWeight: 600, color: 'text.secondary', borderLeft: { md: 1 }, borderColor: 'divider' }}>
                   {version2Info ? `${version2Info.device_hostname} (${formatDateTime(version2Info.created_at)})` : `Версия ${diffData.right_version_id}`}
-                </div>
-              </div>
+                </Box>
+              </Box>
 
-              <div className="diff-table">
+              <Box sx={{ fontFamily: 'monospace', fontSize: '0.75rem', lineHeight: '20px' }}>
                 {processedDiff.lines.map((line, idx) => (
-                    <div key={`line-${idx}`} className={`diff-row diff-row-${line.type}`}>
-                      <div className="diff-cell diff-cell-left">
-                        <span className="diff-line-number">
-                          {line.leftLineNum || ''}
-                        </span>
-                        <span className="diff-line-content">
-                          {line.leftLineNum 
-                            ? (line.type === 'removed' ? '−' : '') + (line.content || '') 
-                            : ''}
-                        </span>
-                      </div>
-                      <div className="diff-cell diff-cell-right">
-                        <span className="diff-line-number">
-                          {line.rightLineNum || ''}
-                        </span>
-                        <span className="diff-line-content">
-                          {line.rightLineNum 
-                            ? (line.type === 'added' ? '+' : '') + (line.content || '')
-                            : ''}
-                        </span>
-                      </div>
-                    </div>
+                  <DiffRow key={`line-${idx}`} line={line} theme={theme} />
                 ))}
-              </div>
+              </Box>
             </>
           )}
-        </div>
+        </Box>
       )}
-    </div>
+    </Box>
   );
 };
 
