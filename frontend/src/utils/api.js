@@ -7,7 +7,7 @@ const getApiUrl = () => {
   if (process.env.REACT_APP_API_URL) {
     return process.env.REACT_APP_API_URL;
   }
-  return 'http://localhost:8080';
+  return 'http://localhost:8080/api';
 };
 
 const API_URL = getApiUrl();
