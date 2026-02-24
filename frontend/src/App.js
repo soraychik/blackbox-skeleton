@@ -1,45 +1,35 @@
-import React, { useState } from 'react';
-import './App.css';
-import DevicesTab from './components/DevicesTab';
-import VersionsTab from './components/VersionsTab';
-import ChangesTab from './components/ChangesTab';
+import React, { useState, useMemo } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { ThemeProvider } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
+import { getTheme } from './theme';
+import Layout from './components/Layout';
+import Dashboard from './pages/Dashboard';
+import Devices from './pages/Devices';
+import DeviceDetails from './pages/DeviceDetails';
+import DeviceDiff from './pages/DeviceDiff';
+import Search from './pages/Search';
 
 function App() {
-  const [activeTab, setActiveTab] = useState('devices');
+  const [darkMode, setDarkMode] = useState(false);
+  const theme = useMemo(() => getTheme(darkMode ? 'dark' : 'light'), [darkMode]);
 
   return (
-    <div className="App">
-      <header className="App-header">
-        <h1>BlackBox</h1>
-      </header>
-      <div className="tabs-container">
-        <button
-          className={`tab-button ${activeTab === 'devices' ? 'active' : ''}`}
-          onClick={() => setActiveTab('devices')}
-        >
-          Девайсы
-        </button>
-        <button
-          className={`tab-button ${activeTab === 'versions' ? 'active' : ''}`}
-          onClick={() => setActiveTab('versions')}
-        >
-          Версии
-        </button>
-        <button
-          className={`tab-button ${activeTab === 'changes' ? 'active' : ''}`}
-          onClick={() => setActiveTab('changes')}
-        >
-          Изменения
-        </button>
-      </div>
-      <div className="tab-content">
-        {activeTab === 'devices' && <DevicesTab />}
-        {activeTab === 'versions' && <VersionsTab />}
-        {activeTab === 'changes' && <ChangesTab />}
-      </div>
-    </div>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <BrowserRouter>
+        <Layout darkMode={darkMode} setDarkMode={setDarkMode}>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/devices" element={<Devices />} />
+            <Route path="/devices/:id" element={<DeviceDetails />} />
+            <Route path="/diff" element={<DeviceDiff />} />
+            <Route path="/search" element={<Search />} />
+          </Routes>
+        </Layout>
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }
 
 export default App;
-

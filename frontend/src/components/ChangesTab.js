@@ -3,13 +3,13 @@ import { getVersions, getVersionDiff } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
 import './ChangesTab.css';
 
-const ChangesTab = () => {
+const ChangesTab = ({ embedded = false, initialDiffData = null }) => {
   const [versions, setVersions] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!embedded);
   const [error, setError] = useState(null);
   const [selectedVersion1, setSelectedVersion1] = useState(null);
   const [selectedVersion2, setSelectedVersion2] = useState(null);
-  const [diffData, setDiffData] = useState(null);
+  const [diffData, setDiffData] = useState(initialDiffData);
   const [diffLoading, setDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState(null);
 
@@ -30,8 +30,15 @@ const ChangesTab = () => {
   }, []);
 
   useEffect(() => {
-    loadVersions();
-  }, [loadVersions]);
+    if (embedded) {
+      setLoading(false);
+      if (initialDiffData) {
+        setDiffData(initialDiffData);
+      }
+    } else {
+      loadVersions();
+    }
+  }, [loadVersions, embedded, initialDiffData]);
 
   const handleCompare = async () => {
     if (!selectedVersion1 || !selectedVersion2) {
@@ -125,41 +132,43 @@ const ChangesTab = () => {
 
   return (
     <div className="changes-container">
-      <div className="changes-header">
-        <h2>Сравнение версий конфигов</h2>
-      </div>
+      {!embedded && (
+        <>
+          <div className="changes-header">
+            <h2>Сравнение версий конфигов</h2>
+          </div>
 
-      <div className="version-selectors">
-        <div className="version-selector">
-          <label htmlFor="version1">Версия 1 (левая):</label>
-          <select
-            id="version1"
-            value={selectedVersion1 || ''}
-            onChange={(e) => setSelectedVersion1(e.target.value)}
-            className="version-select"
-          >
-            <option value="">Выберите версию...</option>
-            {versions.map((version) => (
-              <option key={version.id} value={version.id}>
-                {version.device_hostname} - {formatDateTime(version.created_at)}
-              </option>
-            ))}
-          </select>
-          {version1Info && (
-            <div className="version-info">
-              <small>
-                {version1Info.device_hostname} | 
-                Создано: {formatDateTime(version1Info.created_at)}
-              </small>
+          <div className="version-selectors">
+            <div className="version-selector">
+              <label htmlFor="version1">Версия 1 (левая):</label>
+              <select
+                id="version1"
+                value={selectedVersion1 || ''}
+                onChange={(e) => setSelectedVersion1(e.target.value)}
+                className="version-select"
+              >
+                <option value="">Выберите версию...</option>
+                {versions.map((version) => (
+                  <option key={version.id} value={version.id}>
+                    {version.device_hostname} - {formatDateTime(version.created_at)}
+                  </option>
+                ))}
+              </select>
+              {version1Info && (
+                <div className="version-info">
+                  <small>
+                    {version1Info.device_hostname} | 
+                    Создано: {formatDateTime(version1Info.created_at)}
+                  </small>
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        <div className="version-selector">
-          <label htmlFor="version2">Версия 2 (правая):</label>
-          <select
-            id="version2"
-            value={selectedVersion2 || ''}
+            <div className="version-selector">
+              <label htmlFor="version2">Версия 2 (правая):</label>
+              <select
+                id="version2"
+                value={selectedVersion2 || ''}
             onChange={(e) => setSelectedVersion2(e.target.value)}
             className="version-select"
           >
@@ -190,6 +199,8 @@ const ChangesTab = () => {
           {diffLoading ? 'Сравнение...' : 'Сравнить версии'}
         </button>
       </div>
+        </>
+      )}
 
       {diffError && (
         <div className="error" style={{ marginTop: '20px' }}>
