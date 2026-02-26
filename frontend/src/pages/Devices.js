@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  Alert,
   Box,
   Card,
   CardContent,
@@ -17,10 +18,6 @@ import {
   TablePagination,
   InputAdornment,
   Chip,
-  MenuItem,
-  Select,
-  FormControl,
-  InputLabel,
   Button,
 } from '@mui/material';
 import {
@@ -34,13 +31,13 @@ const Devices = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [devices, setDevices] = useState([]);
+  const [error, setError] = useState(null);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [filters, setFilters] = useState({
     search: '',
     vendor: '',
   });
-  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     loadDevices();
@@ -49,10 +46,11 @@ const Devices = () => {
   const loadDevices = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await getDevices();
       setDevices(data);
     } catch (error) {
-      console.error('Failed to load devices:', error);
+      setError('Не удалось загрузить список устройств');
     } finally {
       setLoading(false);
     }
@@ -103,6 +101,12 @@ const Devices = () => {
         {filteredDevices.length} устройств в системе
       </Typography>
 
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
       <Card sx={{ mb: 3 }}>
         <CardContent sx={{ pb: '16px !important' }}>
           <Grid container spacing={2} alignItems="center">
@@ -135,7 +139,7 @@ const Devices = () => {
               <Button
                 variant="outlined"
                 startIcon={hasActiveFilters ? <ClearIcon /> : <FilterListIcon />}
-                onClick={hasActiveFilters ? clearFilters : () => setShowFilters(!showFilters)}
+                onClick={hasActiveFilters ? clearFilters : undefined}
               >
                 {hasActiveFilters ? 'Очистить' : 'Фильтры'}
               </Button>
@@ -155,7 +159,7 @@ const Devices = () => {
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell>Hostname</TableCell>
+                    <TableCell>Имя устройства</TableCell>
                     <TableCell>IP адрес</TableCell>
                     <TableCell>Вендор</TableCell>
                     <TableCell>Модель</TableCell>

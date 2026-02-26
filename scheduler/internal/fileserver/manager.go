@@ -174,7 +174,7 @@ func (fsm *FileServerManager) processServer(id string, instance *FileServerInsta
 
 	files, err := fsm.processor.GetFilesInDirectory(configDir)
 	if err != nil {
-		log.Printf("Ошибка чтения директории с сервера %s: %v", id, err)
+		log.Printf("Ошибка чтения директории с сервера %s (путь %q): %v", id, configDir, err)
 		instance.isHealthy = false
 		return
 	}
@@ -296,11 +296,12 @@ func getConfigsFromEnv() map[string]*FileServerConfig {
 
 	// Проверяем, включен ли локальный режим
 	if getEnv("LOCAL_FS_ENABLED", "false") == "true" {
-		log.Println("РАЗРАБОТЧИЧЕСКИЙ РЕЖИМ: используется только локальное хранилище")
+		localPath := getEnv("LOCAL_FS_PATH", "/app/configs")
+		log.Printf("РАЗРАБОТЧИЧЕСКИЙ РЕЖИМ: локальное хранилище %q (файлы кладите в scheduler/configs на хосте)", localPath)
 		configs["local"] = &FileServerConfig{
 			ID:        "local",
 			Type:      "local",
-			LocalPath: getEnv("LOCAL_FS_PATH", "/app/configs"),
+			LocalPath: localPath,
 			Enabled:   true,
 		}
 		return configs

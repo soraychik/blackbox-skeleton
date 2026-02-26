@@ -25,6 +25,7 @@ import {
   Devices as DevicesIcon,
   Compare as CompareIcon,
   Search as SearchIcon,
+  FilterList as FilterListIcon,
   DarkMode as DarkModeIcon,
   LightMode as LightModeIcon,
   Logout as LogoutIcon,
@@ -38,6 +39,7 @@ const menuItems = [
   { text: 'Каталог устройств', icon: <DevicesIcon />, path: '/devices' },
   { text: 'Сравнение устройств', icon: <CompareIcon />, path: '/diff' },
   { text: 'Поиск', icon: <SearchIcon />, path: '/search' },
+  { text: 'Поиск по изменениям', icon: <FilterListIcon />, path: '/search-changes' },
 ];
 
 export const ThemeToggleContext = React.createContext();

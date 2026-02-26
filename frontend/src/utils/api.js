@@ -7,7 +7,7 @@ const getApiUrl = () => {
   if (process.env.REACT_APP_API_URL) {
     return process.env.REACT_APP_API_URL;
   }
-  return 'http://localhost:8080';
+  return 'http://localhost:8080/api';
 };
 
 const API_URL = getApiUrl();
@@ -79,8 +79,26 @@ export const getDevicesDiff = async (deviceId1, deviceId2, date) => {
   return response.data;
 };
 
+// UC-2: сравнение конфигурации устройства между датами (ТЗ 2.3)
 export const getDiffByDate = async (deviceId, date1, date2) => {
-  const response = await api.get(`/diff/date?device_id=${deviceId}&date1=${date1}&date2=${date2}`);
+  const response = await api.get(
+    `/diff/date?deviceId=${deviceId}&date1=${date1}&date2=${date2}`
+  );
+  return response.data;
+};
+
+// UC-4: выгрузка конфига за выбранную дату (ТЗ 2.3)
+export const exportConfigByDate = async (deviceId, date) => {
+  const response = await api.get(
+    `/export/config?deviceId=${deviceId}&date=${date}`,
+    { responseType: 'blob' }
+  );
+  return response;
+};
+
+// UC-1: поиск устройств по изменениям (добавились/удалились строки по шаблонам)
+export const searchChanges = async (body) => {
+  const response = await api.post('/search/changes', body);
   return response.data;
 };
 

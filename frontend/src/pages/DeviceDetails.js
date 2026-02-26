@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
+  Alert,
   Box,
   Button,
   Card,
@@ -25,15 +26,17 @@ import {
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
-  Visibility as VisibilityIcon,
   Download as DownloadIcon,
   Compare as CompareIcon,
   Close as CloseIcon,
   History as HistoryIcon,
+  CalendarToday as CalendarTodayIcon,
+  FileDownload as FileDownloadIcon,
 } from '@mui/icons-material';
-import { getDeviceVersions, getVersionContent, getVersionDiff } from '../utils/api';
+import { getDeviceVersions, getVersionContent, getVersionDiff, getDiffByDate, exportConfigByDate } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
 import ChangesTab from '../components/ChangesTab';
+import ConfigViewDialog from '../components/ConfigViewDialog';
 
 const DeviceDetails = () => {
   const { id } = useParams();
@@ -45,6 +48,12 @@ const DeviceDetails = () => {
   const [compareLoading, setCompareLoading] = useState(false);
   const [viewDialog, setViewDialog] = useState({ open: false, content: '', versionId: null });
   const [compareDialog, setCompareDialog] = useState({ open: false, diffData: null, loading: false });
+  const [compareByDate, setCompareByDate] = useState({ date1: '', date2: '' });
+  const [exportDate, setExportDate] = useState('');
+  const [exportLoading, setExportLoading] = useState(false);
+  const [compareByDateLoading, setCompareByDateLoading] = useState(false);
+  const [compareByDateError, setCompareByDateError] = useState('');
+  const [exportError, setExportError] = useState('');
 
   useEffect(() => {
     loadData();
@@ -103,6 +112,64 @@ const DeviceDetails = () => {
   const closeCompareDialog = () => {
     setCompareDialog({ open: false, diffData: null, loading: false });
     setSelectedVersions({ left: null, right: null });
+  };
+
+  // Сравнение конфигурации устройства между датами
+  const handleCompareByDate = async () => {
+    if (!compareByDate.date1 || !compareByDate.date2) return;
+    setCompareByDateError('');
+    try {
+      setCompareByDateLoading(true);
+      setCompareDialog({ open: true, diffData: null, loading: true });
+      const diff = await getDiffByDate(id, compareByDate.date1, compareByDate.date2);
+      setCompareDialog({ open: true, diffData: diff, loading: false });
+    } catch (error) {
+      const msg = error.response?.data?.error || error.message;
+      setCompareByDateError(msg);
+      setCompareDialog({ open: false, diffData: null, loading: false });
+    } finally {
+      setCompareByDateLoading(false);
+    }
+  };
+
+  // Выгрузка конфига за выбранную дату
+  const handleExportByDate = async () => {
+    if (!exportDate) return;
+    setExportError('');
+    try {
+      setExportLoading(true);
+      const response = await exportConfigByDate(id, exportDate);
+      const blob = response.data;
+      const url = URL.createObjectURL(blob);
+      const disposition = response.headers['content-disposition'];
+      let filename = `config_${device?.hostname || id}_${exportDate}.txt`;
+      if (disposition) {
+        const match = /filename="?([^";\n]+)"?/.exec(disposition);
+        if (match) filename = match[1];
+      }
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      if (error.response?.status === 404 && error.response.data instanceof Blob) {
+        try {
+          const text = await error.response.data.text();
+          const data = JSON.parse(text);
+          const msg = data.last_registered_date
+            ? `${data.error} Последняя регистрация: ${data.last_registered_date}`
+            : data.error;
+          setExportError(msg);
+        } catch {
+          setExportError(error.message);
+        }
+      } else {
+        setExportError(error.response?.data?.error || error.message);
+      }
+    } finally {
+      setExportLoading(false);
+    }
   };
 
   if (loading) {
@@ -197,7 +264,7 @@ const DeviceDetails = () => {
                 <MenuItem value="">Выберите версию...</MenuItem>
                 {versions.map((v) => (
                   <MenuItem key={v.id} value={v.id}>
-                    {formatDateTime(v.created_at)} ({v.storage_type})
+                    {formatDateTime(v.created_at)}
                   </MenuItem>
                 ))}
               </TextField>
@@ -217,7 +284,7 @@ const DeviceDetails = () => {
                 <MenuItem value="">Выберите версию...</MenuItem>
                 {versions.map((v) => (
                   <MenuItem key={v.id} value={v.id}>
-                    {formatDateTime(v.created_at)} ({v.storage_type})
+                    {formatDateTime(v.created_at)}
                   </MenuItem>
                 ))}
               </TextField>
@@ -236,6 +303,106 @@ const DeviceDetails = () => {
         </CardContent>
       </Card>
 
+      {/* UC-2: Сравнение конфигурации между датами */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" fontWeight={600} gutterBottom>
+            <CalendarTodayIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+            Сравнение по датам
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Выберите две даты для сравнения конфигурации устройства
+          </Typography>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} sm={5}>
+              <TextField
+                fullWidth
+                size="small"
+                type="date"
+                label="Дата 1 (старая)"
+                InputLabelProps={{ shrink: true }}
+                value={compareByDate.date1}
+                onChange={(e) => setCompareByDate((prev) => ({ ...prev, date1: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12} sm={2} sx={{ textAlign: 'center' }}>
+              <CompareIcon color="action" />
+            </Grid>
+            <Grid item xs={12} sm={5}>
+              <TextField
+                fullWidth
+                size="small"
+                type="date"
+                label="Дата 2 (новая)"
+                InputLabelProps={{ shrink: true }}
+                value={compareByDate.date2}
+                onChange={(e) => setCompareByDate((prev) => ({ ...prev, date2: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <Button
+                variant="outlined"
+                startIcon={compareByDateLoading ? <CircularProgress size={20} color="inherit" /> : <CompareIcon />}
+                onClick={handleCompareByDate}
+                disabled={!compareByDate.date1 || !compareByDate.date2 || compareByDateLoading}
+              >
+                {compareByDateLoading ? 'Сравнение...' : 'Сравнить по датам'}
+              </Button>
+            </Grid>
+            {compareByDateError && (
+              <Grid item xs={12}>
+                <Alert severity="warning" onClose={() => setCompareByDateError('')}>
+                  {compareByDateError}
+                </Alert>
+              </Grid>
+            )}
+          </Grid>
+        </CardContent>
+      </Card>
+
+      {/* Выгрузка конфига за выбранную дату */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" fontWeight={600} gutterBottom>
+            <FileDownloadIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+            Выгрузить конфиг за дату
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Скачать конфигурацию устройства на выбранную дату
+          </Typography>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                size="small"
+                type="date"
+                label="Дата"
+                InputLabelProps={{ shrink: true }}
+                value={exportDate}
+                onChange={(e) => setExportDate(e.target.value)}
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <Button
+                variant="outlined"
+                startIcon={exportLoading ? <CircularProgress size={20} color="inherit" /> : <DownloadIcon />}
+                onClick={handleExportByDate}
+                disabled={!exportDate || exportLoading}
+              >
+                {exportLoading ? 'Выгрузка...' : 'Скачать конфиг'}
+              </Button>
+            </Grid>
+            {exportError && (
+              <Grid item xs={12}>
+                <Alert severity="warning" onClose={() => setExportError('')}>
+                  {exportError}
+                </Alert>
+              </Grid>
+            )}
+          </Grid>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent>
           <Typography variant="h6" fontWeight={600} gutterBottom>
@@ -246,45 +413,25 @@ const DeviceDetails = () => {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>ID</TableCell>
                   <TableCell>Дата</TableCell>
-                  <TableCell>Тип</TableCell>
                   <TableCell>Размер</TableCell>
-                  <TableCell>Хэш</TableCell>
-                  <TableCell align="right">Действия</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {versions.map((version) => (
-                  <TableRow key={version.id} hover>
-                    <TableCell>{version.id}</TableCell>
+                  <TableRow
+                    key={version.id}
+                    hover
+                    onClick={() => handleViewVersion(version.id)}
+                    sx={{ cursor: 'pointer' }}
+                  >
                     <TableCell>{formatDateTime(version.created_at)}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={version.storage_type === 'base' ? 'База' : 'Diff'}
-                        size="small"
-                        color={version.storage_type === 'base' ? 'primary' : 'secondary'}
-                      />
-                    </TableCell>
-                    <TableCell>{version.original_size ? `${version.original_size} байт` : '-'}</TableCell>
-                    <TableCell>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                        {version.version_hash?.substring(0, 12)}...
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <IconButton size="small" onClick={() => handleViewVersion(version.id)}>
-                        <VisibilityIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton size="small" onClick={() => handleDownloadVersion(version.id)}>
-                        <DownloadIcon fontSize="small" />
-                      </IconButton>
-                    </TableCell>
+                    <TableCell >{version.original_size ? (version.original_size < 1024 ? `${version.original_size} байт` : `${(version.original_size / 1024).toFixed(1)} КБ`) : '-'}</TableCell>
                   </TableRow>
                 ))}
                 {versions.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={2} align="center" sx={{ py: 4 }}>
                       <Typography color="text.secondary">Нет доступных версий</Typography>
                     </TableCell>
                   </TableRow>
@@ -295,38 +442,13 @@ const DeviceDetails = () => {
         </CardContent>
       </Card>
 
-      {/* View Dialog */}
-      <Dialog
+      <ConfigViewDialog
         open={viewDialog.open}
         onClose={() => setViewDialog({ open: false, content: '', versionId: null })}
-        maxWidth="lg"
-        fullWidth
-      >
-        <DialogContent sx={{ p: 0 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>
-            <Typography variant="h6">Версия {viewDialog.versionId}</Typography>
-            <IconButton onClick={() => setViewDialog({ open: false, content: '', versionId: null })}>
-              <CloseIcon />
-            </IconButton>
-          </Box>
-          <Box
-            component="pre"
-            sx={{
-              p: 2,
-              m: 0,
-              maxHeight: '70vh',
-              overflow: 'auto',
-              bgcolor: 'background.default',
-              fontFamily: 'monospace',
-              fontSize: '0.875rem',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all',
-            }}
-          >
-            {viewDialog.content}
-          </Box>
-        </DialogContent>
-      </Dialog>
+        title="Просмотр конфигурации"
+        content={viewDialog.content}
+        onDownload={viewDialog.versionId ? () => handleDownloadVersion(viewDialog.versionId) : null}
+      />
 
       {/* Compare Dialog */}
       <Dialog

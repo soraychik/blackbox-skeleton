@@ -115,17 +115,16 @@ services:
     networks:
       - blackbox-net
 
-  frontend:
+  nginx:
     build:
-      context: ./frontend
+      context: .
+      dockerfile: nginx/Dockerfile
       args:
-        - REACT_APP_API_URL=http://localhost:8080
-    container_name: blackbox-frontend
+        - REACT_APP_API_URL=${REACT_APP_API_URL:-/api}
+    container_name: blackbox-nginx
     restart: unless-stopped
     ports:
-      - "3000:3000"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "80:80"
     depends_on:
       - api-web
     networks:

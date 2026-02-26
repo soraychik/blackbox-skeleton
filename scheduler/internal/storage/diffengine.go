@@ -332,20 +332,33 @@ func (de *DiffEngine) ShouldUseDiff(oldContent, newContent []byte, threshold flo
 }
 
 func (de *DiffEngine) GetStats(oldContent, newContent []byte) map[string]interface{} {
-	diffSize, fullSize := de.CalculateDiffSize(oldContent, newContent)
+	patch := de.CreateUnifiedDiff(oldContent, newContent, "old", "new")
+	diffSizeUncompressed := len(patch)
+
+	compressedPatch, err := de.CompressPatch(patch)
+	diffSize := len(compressedPatch)
+	if err != nil {
+		diffSize = diffSizeUncompressed
+	}
+	fullSize := len(newContent)
+
 	shouldUseDiff := de.ShouldUseDiff(oldContent, newContent, 0.1)
 
 	savings := fullSize - diffSize
-	savingsPercent := float64(savings) / float64(fullSize) * 100
+	savingsPercent := float64(0)
+	if fullSize > 0 {
+		savingsPercent = float64(savings) / float64(fullSize) * 100
+	}
 
 	return map[string]interface{}{
-		"original_size":   len(oldContent),
-		"new_size":        len(newContent),
-		"diff_size":       diffSize,
-		"full_size":       fullSize,
-		"savings_bytes":   savings,
-		"savings_percent": savingsPercent,
-		"should_use_diff": shouldUseDiff,
+		"original_size":          len(oldContent),
+		"new_size":               len(newContent),
+		"diff_size":              diffSize,
+		"diff_size_uncompressed": diffSizeUncompressed, // размер патча до сжатия — как в БД/UI
+		"full_size":              fullSize,
+		"savings_bytes":          savings,
+		"savings_percent":        savingsPercent,
+		"should_use_diff":        shouldUseDiff,
 	}
 }
 

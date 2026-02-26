@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
+  Alert,
   Box,
   Button,
   Card,
@@ -28,6 +29,7 @@ const DeviceDiff = () => {
   const [compareLoading, setCompareLoading] = useState(false);
   const [diffData, setDiffData] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     loadDevices();
@@ -36,10 +38,11 @@ const DeviceDiff = () => {
   const loadDevices = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await getDevices();
       setDevices(data);
     } catch (error) {
-      console.error('Failed to load devices:', error);
+      setError('Не удалось загрузить список устройств');
     } finally {
       setLoading(false);
     }
@@ -50,11 +53,12 @@ const DeviceDiff = () => {
 
     try {
       setCompareLoading(true);
+      setError(null);
       const diff = await getVersionDiff(leftDevice.id, rightDevice.id);
       setDiffData(diff);
       setDialogOpen(true);
     } catch (error) {
-      console.error('Failed to compare devices:', error);
+      setError('Не удалось выполнить сравнение. Проверьте соединение с сервером');
     } finally {
       setCompareLoading(false);
     }
@@ -82,13 +86,19 @@ const DeviceDiff = () => {
         Сравните конфигурации двух разных устройств
       </Typography>
 
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
       <Card>
         <CardContent>
           <Grid container spacing={3} alignItems="center">
             <Grid item xs={12} md={5}>
               <Autocomplete
                 options={devices}
-                getOptionLabel={(option) => `${option.hostname} (${option.mgmt_ip || 'N/A'})`}
+                getOptionLabel={(option) => `${option.hostname} (${option.mgmt_ip || '-'})`}
                 value={leftDevice}
                 onChange={(e, value) => setLeftDevice(value)}
                 renderInput={(params) => (
@@ -102,7 +112,7 @@ const DeviceDiff = () => {
             <Grid item xs={12} md={5}>
               <Autocomplete
                 options={devices}
-                getOptionLabel={(option) => `${option.hostname} (${option.mgmt_ip || 'N/A'})`}
+                getOptionLabel={(option) => `${option.hostname} (${option.mgmt_ip || '-'})`}
                 value={rightDevice}
                 onChange={(e, value) => setRightDevice(value)}
                 renderInput={(params) => (
