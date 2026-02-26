@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  Alert,
   Box,
   Card,
   CardContent,
@@ -60,6 +61,7 @@ const StatCard = ({ title, value, icon, color, loading }) => (
 const Dashboard = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [devices, setDevices] = useState([]);
   const [versions, setVersions] = useState([]);
   const [stats, setStats] = useState({
@@ -115,7 +117,7 @@ const Dashboard = () => {
             .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
           return {
             deviceId: parseInt(deviceId),
-            hostname: device?.hostname || `Device ${deviceId}`,
+            hostname: device?.hostname || `Устройство #${deviceId}`,
             changeCount: count,
             lastChange: latestVersion?.created_at,
           };
@@ -125,7 +127,7 @@ const Dashboard = () => {
 
       setTopDevices(top);
     } catch (error) {
-      console.error('Failed to load dashboard data:', error);
+      setError('Не удалось загрузить данные дашборда');
     } finally {
       setLoading(false);
     }
@@ -139,6 +141,12 @@ const Dashboard = () => {
       <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
         Обзор состояния системы
       </Typography>
+
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 3 }}>
+          {error}
+        </Alert>
+      )}
 
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} sm={6} md={4}>

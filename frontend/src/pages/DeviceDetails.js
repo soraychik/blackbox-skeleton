@@ -36,6 +36,7 @@ import {
 import { getDeviceVersions, getVersionContent, getVersionDiff, getDiffByDate, exportConfigByDate } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
 import ChangesTab from '../components/ChangesTab';
+import ConfigViewDialog from '../components/ConfigViewDialog';
 
 const DeviceDetails = () => {
   const { id } = useParams();
@@ -441,48 +442,13 @@ const DeviceDetails = () => {
         </CardContent>
       </Card>
 
-      {/* View Dialog */}
-      <Dialog
+      <ConfigViewDialog
         open={viewDialog.open}
         onClose={() => setViewDialog({ open: false, content: '', versionId: null })}
-        maxWidth="lg"
-        fullWidth
-      >
-        <DialogContent sx={{ p: 0 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>
-            <Typography variant="h6">Просмотр конфигурации</Typography>
-            <Box>
-              <Button
-                size="small"
-                startIcon={<DownloadIcon />}
-                onClick={() => viewDialog.versionId && handleDownloadVersion(viewDialog.versionId)}
-                sx={{ mr: 1 }}
-              >
-                Скачать
-              </Button>
-              <IconButton onClick={() => setViewDialog({ open: false, content: '', versionId: null })}>
-                <CloseIcon />
-              </IconButton>
-            </Box>
-          </Box>
-          <Box
-            component="pre"
-            sx={{
-              p: 2,
-              m: 0,
-              maxHeight: '70vh',
-              overflow: 'auto',
-              bgcolor: 'background.default',
-              fontFamily: 'monospace',
-              fontSize: '0.875rem',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all',
-            }}
-          >
-            {viewDialog.content}
-          </Box>
-        </DialogContent>
-      </Dialog>
+        title="Просмотр конфигурации"
+        content={viewDialog.content}
+        onDownload={viewDialog.versionId ? () => handleDownloadVersion(viewDialog.versionId) : null}
+      />
 
       {/* Compare Dialog */}
       <Dialog

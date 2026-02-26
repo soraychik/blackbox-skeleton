@@ -53,6 +53,8 @@ func main() {
 	router.GET("/export/config", getExportConfig)
 	// ТЗ 2.1 UC-1 — поиск устройств по изменениям (добавились/удалились строки по шаблонам)
 	router.POST("/search/changes", postSearchChanges)
+	// ТЗ 2.3 UC-5 — поиск по конфигурациям (regexp, сниппеты)
+	router.POST("/search/count", postSearchCount)
 
 	log.Println("API Web server starting on :8080")
 	router.Run(":8080")
@@ -832,6 +834,31 @@ type SearchChangesRequest struct {
 	ToDate          string   `json:"to_date"`
 }
 
+// SearchCountRequest — тело POST /search/count (UC-5)
+type SearchCountRequest struct {
+	Pattern       string `json:"pattern"`
+	CaseSensitive bool   `json:"caseSensitive"`
+	Scope         string `json:"scope"` // "all" или "device"
+	DeviceID      *int   `json:"deviceId"`
+}
+
+// SearchCountResult — результат поиска для одного устройства
+type SearchCountResult struct {
+	DeviceID   int           `json:"device_id"`
+	VersionID  int           `json:"version_id"`
+	Hostname   string        `json:"hostname"`
+	MgmtIP     *string       `json:"mgmt_ip,omitempty"`
+	MatchCount int           `json:"match_count"`
+	Snippets   []SnippetLine `json:"snippets"`
+}
+
+// SnippetLine — одна строка сниппета
+type SnippetLine struct {
+	Line  int    `json:"line"`
+	Text  string `json:"text"`
+	Match bool   `json:"match"`
+}
+
 // ChangeMatch — одно совпадение изменений по устройству
 type ChangeMatch struct {
 	LeftVersionID  int    `json:"left_version_id"`
@@ -965,6 +992,189 @@ func postSearchChanges(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"devices": results})
+}
+
+// postSearchCount — UC-5: поиск по конфигурациям устройств (ТЗ 2.3)
+func postSearchCount(c *gin.Context) {
+	var req SearchCountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+	if req.Pattern == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "pattern is required"})
+		return
+	}
+
+	flags := ""
+	if !req.CaseSensitive {
+		flags = "(?i)"
+	}
+	pattern := flags + req.Pattern
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid pattern: %v", err)})
+		return
+	}
+
+	db, err := NewDB()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
+		return
+	}
+	defer db.Close()
+
+	minioClient, err := storage.NewMinIOImprovedClient()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to connect to MinIO: %v", err)})
+		return
+	}
+
+	var query string
+	var args []interface{}
+
+	if req.Scope == "device" && req.DeviceID != nil {
+		query = `
+			SELECT d.id, d.hostname, d.mgmt_ip, cv.id, cv.storage_type, cv.storage_path
+			FROM devices d
+			JOIN config_versions cv ON cv.id = (
+				SELECT id FROM config_versions
+				WHERE device_id = d.id
+				ORDER BY created_at DESC
+				LIMIT 1
+			)
+			WHERE d.id = ? AND d.enabled = 1`
+		args = []interface{}{*req.DeviceID}
+	} else {
+		query = `
+			SELECT d.id, d.hostname, d.mgmt_ip, cv.id, cv.storage_type, cv.storage_path
+			FROM devices d
+			JOIN config_versions cv ON cv.id = (
+				SELECT id FROM config_versions
+				WHERE device_id = d.id
+				ORDER BY created_at DESC
+				LIMIT 1
+			)
+			WHERE d.enabled = 1
+			ORDER BY d.id`
+	}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query devices"})
+		return
+	}
+	defer rows.Close()
+
+	type deviceVersion struct {
+		deviceID    int
+		hostname    string
+		mgmtIP      *string
+		versionID   int
+		storageType string
+		storagePath string
+	}
+
+	var devices []deviceVersion
+	for rows.Next() {
+		var dv deviceVersion
+		var mgmtIP sql.NullString
+		if err := rows.Scan(&dv.deviceID, &dv.hostname, &mgmtIP, &dv.versionID, &dv.storageType, &dv.storagePath); err != nil {
+			log.Printf("Failed to scan device version: %v", err)
+			continue
+		}
+		if mgmtIP.Valid {
+			dv.mgmtIP = &mgmtIP.String
+		}
+		devices = append(devices, dv)
+	}
+
+	var results []SearchCountResult
+
+	for _, dv := range devices {
+		version, err := getVersionByID(db, dv.versionID)
+		if err != nil {
+			log.Printf("Failed to get version %d: %v", dv.versionID, err)
+			continue
+		}
+
+		content, err := reconstructVersionContent(c.Request.Context(), db, minioClient, version)
+		if err != nil {
+			log.Printf("Failed to get content for device %d: %v", dv.deviceID, err)
+			continue
+		}
+
+		contentStr := string(content)
+		matches := re.FindAllStringIndex(contentStr, -1)
+		matchCount := len(matches)
+
+		if matchCount == 0 {
+			continue
+		}
+
+		lines := strings.Split(contentStr, "\n")
+		snippetLines := findSnippetLines(lines, matches, 2)
+
+		results = append(results, SearchCountResult{
+			DeviceID:   dv.deviceID,
+			VersionID:  dv.versionID,
+			Hostname:   dv.hostname,
+			MgmtIP:     dv.mgmtIP,
+			MatchCount: matchCount,
+			Snippets:   snippetLines,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"results": results})
+}
+
+func findSnippetLines(lines []string, matches [][]int, contextLines int) []SnippetLine {
+	seenLines := make(map[int]bool)
+	var snippetLines []SnippetLine
+
+	for _, match := range matches {
+		startLine := 0
+		pos := 0
+		for i, line := range lines {
+			lineLen := len(line) + 1
+			if pos+lineLen > match[0] {
+				startLine = i
+				break
+			}
+			pos += lineLen
+		}
+
+		endLine := startLine
+		pos = 0
+		for i, line := range lines {
+			lineLen := len(line) + 1
+			if pos+lineLen > match[1] {
+				endLine = i
+				break
+			}
+			pos += lineLen
+		}
+
+		for i := startLine - contextLines; i <= endLine+contextLines; i++ {
+			if i < 0 || i >= len(lines) {
+				continue
+			}
+			if seenLines[i] {
+				continue
+			}
+			seenLines[i] = true
+
+			isMatch := (i >= startLine && i <= endLine)
+			snippetLines = append(snippetLines, SnippetLine{
+				Line:  i + 1,
+				Text:  lines[i],
+				Match: isMatch,
+			})
+		}
+	}
+
+	return snippetLines
 }
 
 func compilePatterns(patterns []string) ([]*regexp.Regexp, error) {

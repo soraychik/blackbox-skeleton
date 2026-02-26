@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  Alert,
   Box,
   Button,
   Card,
@@ -32,10 +33,11 @@ import ChangesTab from '../components/ChangesTab';
 
 /**
  * Поиск устройств, у которых конфиг изменился по множественному условию
- * (добавились/удалились строки по шаблонам). ТЗ 2.1, 2.3.
+ * (добавились/удалились строки по шаблонам).
  */
 const SearchChanges = () => {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [params, setParams] = useState({
     added_patterns: '',
     removed_patterns: '',
@@ -72,6 +74,7 @@ const SearchChanges = () => {
     }
     try {
       setLoading(true);
+      setError(null);
       const data = await searchChanges({
         added_patterns: added,
         removed_patterns: removed,
@@ -80,7 +83,7 @@ const SearchChanges = () => {
       });
       setResults(data.devices || []);
     } catch (error) {
-      console.error('Search changes failed:', error);
+      setError('Не удалось выполнить поиск по изменениям');
       setResults([]);
     } finally {
       setLoading(false);
@@ -93,7 +96,7 @@ const SearchChanges = () => {
       const diffData = await getVersionDiff(leftVersionId, rightVersionId);
       setDiffDialog({ open: true, loading: false, data: diffData, deviceId: null });
     } catch (error) {
-      console.error('Failed to load diff:', error);
+      setError('Не удалось загрузить сравнение версий');
       setDiffDialog({ open: false, loading: false, data: null, deviceId: null });
     }
   };
@@ -110,6 +113,12 @@ const SearchChanges = () => {
       <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
         Найти устройства, у которых конфиг изменился по условию: добавились и/или удалились строки по шаблонам (regex)
       </Typography>
+
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       <Card sx={{ mb: 4 }}>
         <CardContent>
@@ -265,7 +274,7 @@ const SearchChanges = () => {
                                   <Chip size="small" label={`+${ch.added_count}`} color="success" variant="outlined" />
                                   <Chip size="small" label={`-${ch.removed_count}`} color="error" variant="outlined" />
                                   <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto' }}>
-                                    Нажмите для просмотра diff →
+                                    Нажмите для просмотра сравнения →
                                   </Typography>
                                 </Box>
                               ))}

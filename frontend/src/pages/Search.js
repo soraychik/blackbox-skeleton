@@ -1,16 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
+  Alert,
   Box,
   Button,
   Card,
   CardContent,
   Checkbox,
   CircularProgress,
-  Dialog,
-  DialogContent,
   FormControlLabel,
   Grid,
-  IconButton,
   Table,
   TableBody,
   TableCell,
@@ -19,68 +17,57 @@ import {
   TableRow,
   TextField,
   Typography,
-  Autocomplete,
   Chip,
 } from '@mui/material';
 import {
   Search as SearchIcon,
-  Visibility as VisibilityIcon,
-  Close as CloseIcon,
   FileDownload as FileDownloadIcon,
 } from '@mui/icons-material';
-import { getDevices, searchPattern } from '../utils/api';
+import { searchPattern, getVersionContent } from '../utils/api';
+import ConfigViewDialog from '../components/ConfigViewDialog';
 
 const Search = () => {
   const [loading, setLoading] = useState(false);
-  const [devices, setDevices] = useState([]);
+  const [error, setError] = useState(null);
   const [searchParams, setSearchParams] = useState({
     pattern: '',
     caseSensitive: false,
-    scope: 'all',
-    selectedDevice: null,
   });
   const [results, setResults] = useState(null);
-  const [snippetsDialog, setSnippetsDialog] = useState({ open: false, device: null, snippets: [] });
-
-  useEffect(() => {
-    loadDevices();
-  }, []);
-
-  const loadDevices = async () => {
-    try {
-      const data = await getDevices();
-      setDevices(data);
-    } catch (error) {
-      console.error('Failed to load devices:', error);
-    }
-  };
+  const [snippetsDialog, setSnippetsDialog] = useState({
+    open: false,
+    device: null,
+    snippets: [],
+    versionId: null,
+    downloadLoading: false,
+  });
 
   const handleSearch = async () => {
     if (!searchParams.pattern.trim()) return;
 
     try {
       setLoading(true);
+      setError(null);
       const requestBody = {
         pattern: searchParams.pattern,
         caseSensitive: searchParams.caseSensitive,
-        scope: searchParams.scope,
-        deviceId: searchParams.scope === 'device' ? searchParams.selectedDevice?.id : null,
+        scope: 'all',
       };
 
       const data = await searchPattern(requestBody);
       setResults(data);
     } catch (error) {
-      console.error('Failed to search:', error);
+      setError('Не удалось выполнить поиск. Проверьте соединение с сервером');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleExport = () => {
+  const handleExportCsv = () => {
     if (!results) return;
 
     const csvContent = [
-      ['Hostname', 'IP', 'Matches'],
+      ['Устройство', 'IP адрес', 'Совпадений'],
       ...results.map((r) => [r.hostname, r.mgmt_ip || '', r.match_count]),
     ]
       .map((row) => row.join(','))
@@ -95,18 +82,54 @@ const Search = () => {
     URL.revokeObjectURL(url);
   };
 
-  const handleShowSnippets = (device, snippets) => {
-    setSnippetsDialog({ open: true, device, snippets });
+  const handleRowClick = (result) => {
+    setSnippetsDialog({
+      open: true,
+      device: result.hostname,
+      snippets: result.snippets || [],
+      versionId: result.version_id || null,
+      downloadLoading: false,
+    });
+  };
+
+  const handleDownloadConfig = async () => {
+    if (!snippetsDialog.versionId) return;
+
+    setSnippetsDialog((prev) => ({ ...prev, downloadLoading: true }));
+    try {
+      const content = await getVersionContent(snippetsDialog.versionId);
+      const blob = new Blob([content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `config_${snippetsDialog.device}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setError('Не удалось скачать конфигурацию');
+    } finally {
+      setSnippetsDialog((prev) => ({ ...prev, downloadLoading: false }));
+    }
+  };
+
+  const closeDialog = () => {
+    setSnippetsDialog({ open: false, device: null, snippets: [], versionId: null, downloadLoading: false });
   };
 
   return (
     <Box>
       <Typography variant="h4" fontWeight={600} gutterBottom>
-        Поиск и подсчет
+        Поиск и подсчёт
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-        Найдите устройства с определенным паттерном в конфигурации
+        Найдите устройства с определённым паттерном в конфигурации
       </Typography>
+
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       <Card sx={{ mb: 4 }}>
         <CardContent>
@@ -129,45 +152,13 @@ const Search = () => {
                   <Checkbox
                     checked={searchParams.caseSensitive}
                     onChange={(e) =>
-                      setSearchParams((prev) => ({
-                        ...prev,
-                        caseSensitive: e.target.checked,
-                      }))
+                      setSearchParams((prev) => ({ ...prev, caseSensitive: e.target.checked }))
                     }
                   />
                 }
                 label="Учитывать регистр"
               />
             </Grid>
-            <Grid item xs={12} md={4}>
-              <TextField
-                select
-                fullWidth
-                label="Область поиска"
-                value={searchParams.scope}
-                onChange={(e) =>
-                  setSearchParams((prev) => ({ ...prev, scope: e.target.value }))
-                }
-              >
-                <option value="all">Все устройства</option>
-                <option value="device">Конкретное устройство</option>
-              </TextField>
-            </Grid>
-            {searchParams.scope === 'device' && (
-              <Grid item xs={12} md={8}>
-                <Autocomplete
-                  options={devices}
-                  getOptionLabel={(option) => `${option.hostname} (${option.mgmt_ip || 'N/A'})`}
-                  value={searchParams.selectedDevice}
-                  onChange={(e, value) =>
-                    setSearchParams((prev) => ({ ...prev, selectedDevice: value }))
-                  }
-                  renderInput={(params) => (
-                    <TextField {...params} label="Выберите устройство" />
-                  )}
-                />
-              </Grid>
-            )}
             <Grid item xs={12}>
               <Button
                 variant="contained"
@@ -193,11 +184,7 @@ const Search = () => {
                 <Typography variant="body2" color="text.secondary">
                   Всего совпадений: {results.reduce((sum, r) => sum + r.match_count, 0)}
                 </Typography>
-                <Button
-                  size="small"
-                  startIcon={<FileDownloadIcon />}
-                  onClick={handleExport}
-                >
+                <Button size="small" startIcon={<FileDownloadIcon />} onClick={handleExportCsv}>
                   CSV
                 </Button>
               </Box>
@@ -210,36 +197,28 @@ const Search = () => {
                     <TableCell>Устройство</TableCell>
                     <TableCell>IP адрес</TableCell>
                     <TableCell align="center">Совпадений</TableCell>
-                    <TableCell align="right">Действия</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {results.map((result) => (
-                    <TableRow key={result.device_id} hover>
+                    <TableRow
+                      key={result.device_id}
+                      hover
+                      onClick={() => handleRowClick(result)}
+                      sx={{ cursor: 'pointer' }}
+                    >
                       <TableCell>
                         <Typography fontWeight={500}>{result.hostname}</Typography>
                       </TableCell>
                       <TableCell>{result.mgmt_ip || '-'}</TableCell>
                       <TableCell align="center">
-                        <Chip
-                          label={result.match_count}
-                          color="primary"
-                          size="small"
-                        />
-                      </TableCell>
-                      <TableCell align="right">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleShowSnippets(result.hostname, result.snippets || [])}
-                        >
-                          <VisibilityIcon fontSize="small" />
-                        </IconButton>
+                        <Chip label={result.match_count} color="primary" size="small" />
                       </TableCell>
                     </TableRow>
                   ))}
                   {results.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={3} align="center" sx={{ py: 4 }}>
                         <Typography color="text.secondary">Ничего не найдено</Typography>
                       </TableCell>
                     </TableRow>
@@ -251,37 +230,14 @@ const Search = () => {
         </Card>
       )}
 
-      {/* Snippets Dialog */}
-      <Dialog
+      <ConfigViewDialog
         open={snippetsDialog.open}
-        onClose={() => setSnippetsDialog({ open: false, device: null, snippets: [] })}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogContent sx={{ p: 0 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>
-            <Typography variant="h6">{snippetsDialog.device}</Typography>
-            <IconButton onClick={() => setSnippetsDialog({ open: false, device: null, snippets: [] })}>
-              <CloseIcon />
-            </IconButton>
-          </Box>
-          <Box
-            component="pre"
-            sx={{
-              p: 2,
-              m: 0,
-              maxHeight: '60vh',
-              overflow: 'auto',
-              bgcolor: 'background.default',
-              fontFamily: 'monospace',
-              fontSize: '0.875rem',
-              whiteSpace: 'pre-wrap',
-            }}
-          >
-            {snippetsDialog.snippets.join('\n')}
-          </Box>
-        </DialogContent>
-      </Dialog>
+        onClose={closeDialog}
+        title={snippetsDialog.device || 'Просмотр конфигурации'}
+        snippets={snippetsDialog.snippets}
+        onDownload={snippetsDialog.versionId ? handleDownloadConfig : null}
+        downloadLoading={snippetsDialog.downloadLoading}
+      />
     </Box>
   );
 };

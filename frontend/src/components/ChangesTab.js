@@ -215,8 +215,8 @@ const ChangesTab = ({ embedded = false, initialDiffData = null }) => {
     } catch (err) {
       const errorMessage = err.response
         ? `Ошибка ${err.response.status}: ${err.response.data?.error || err.message}`
-        : err.message || 'Не удалось получить diff';
-      setDiffError('Ошибка при получении diff: ' + errorMessage);
+        : err.message || 'Не удалось получить данные сравнения';
+      setDiffError('Ошибка при получении данных сравнения: ' + errorMessage);
       setDiffData(null);
     } finally {
       setDiffLoading(false);
@@ -303,7 +303,7 @@ const ChangesTab = ({ embedded = false, initialDiffData = null }) => {
         <>
           <Box sx={{ mb: 3, textAlign: 'center' }}>
             <Typography variant="h5" sx={{ color: 'text.primary', mb: 1 }}>
-              Сравнение версий конфигов
+              Сравнение версий конфигураций
             </Typography>
           </Box>
 

@@ -90,7 +90,6 @@ const VersionsTab = () => {
               <tr key={version.id}>
                 <td>{version.device_hostname}</td>
                 <td>{formatDateTime(version.created_at)}</td>
-                <td>{formatDateTime(version.created_at)}</td>
               </tr>
             ))
           )}
@@ -101,4 +100,3 @@ const VersionsTab = () => {
 };
 
 export default VersionsTab;
-
