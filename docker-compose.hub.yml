@@ -1,0 +1,128 @@
+# Запуск из готовых образов Docker Hub (без сборки).
+# Используется после того, как образы опубликованы: docker compose -f docker-compose.hub.yml up -d
+# В .env должен быть задан DOCKERHUB_USER (логин на Docker Hub, под которым выложены образы).
+
+services:
+  mysql-db:
+    image: mysql:8.0
+    container_name: blackbox-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: blackbox
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: apppassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./sql-init/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - blackbox-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uappuser", "-papppassword"]
+      timeout: 20s
+      retries: 10
+      start_period: 30s
+
+  minio:
+    image: minio/minio:latest
+    container_name: blackbox-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - minio_data:/data
+    networks:
+      - blackbox-net
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  scheduler:
+    image: ${DOCKERHUB_USER:-yourusername}/blackbox-scheduler:latest
+    container_name: blackbox-scheduler
+    restart: unless-stopped
+    cap_add:
+      - SYS_ADMIN
+    volumes:
+      - ./scheduler/configs:/app/configs
+      - ./.env:/.env
+    environment:
+      - USE_MINIO=${USE_MINIO}
+      - DIFF_THRESHOLD=${DIFF_THRESHOLD}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
+      - MINIO_USE_SSL=${MINIO_USE_SSL}
+      - FILE_SERVER_TYPE=${FILE_SERVER_TYPE}
+      - FILE_SERVER_ENABLED=${FILE_SERVER_ENABLED}
+      - NFS_SERVER=${NFS_SERVER}
+      - NFS_SHARE_PATH=${NFS_SHARE_PATH}
+      - NFS_MOUNT_POINT=${NFS_MOUNT_POINT}
+      - SMB_SERVER=${SMB_SERVER}
+      - SMB_SHARE_NAME=${SMB_SHARE_NAME}
+      - SMB_MOUNT_POINT=${SMB_MOUNT_POINT}
+      - SMB_USERNAME=${SMB_USERNAME}
+      - SMB_PASSWORD=${SMB_PASSWORD}
+      - SMB_DOMAIN=${SMB_DOMAIN}
+      - LOCAL_FS_ENABLED=${LOCAL_FS_ENABLED}
+      - LOCAL_FS_PATH=${LOCAL_FS_PATH}
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB}
+      - RETRY_ATTEMPTS=${RETRY_ATTEMPTS}
+      - TIMEOUT_SECONDS=${TIMEOUT_SECONDS}
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - blackbox-net
+
+  api-web:
+    image: ${DOCKERHUB_USER:-yourusername}/blackbox-api-web:latest
+    container_name: blackbox-api-web
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - USE_MINIO=${USE_MINIO}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
+      - MINIO_USE_SSL=${MINIO_USE_SSL}
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - blackbox-net
+
+  nginx:
+    image: ${DOCKERHUB_USER:-yourusername}/blackbox-nginx:latest
+    container_name: blackbox-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api-web
+    networks:
+      - blackbox-net
+
+volumes:
+  mysql_data:
+  minio_data:
+
+networks:
+  blackbox-net:
+    driver: bridge
