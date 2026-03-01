@@ -18,7 +18,7 @@ import {
   Compare as CompareIcon,
   Close as CloseIcon,
 } from '@mui/icons-material';
-import { getDevices, getVersionDiff } from '../utils/api';
+import { getDevices, getDeviceVersions, getVersionDiff } from '../utils/api';
 import ChangesTab from '../components/ChangesTab';
 
 const DeviceDiff = () => {
@@ -54,11 +54,29 @@ const DeviceDiff = () => {
     try {
       setCompareLoading(true);
       setError(null);
-      const diff = await getVersionDiff(leftDevice.id, rightDevice.id);
+      // API сравнения принимает id версий, а не устройств — берём последнюю версию каждого устройства
+      const [data1, data2] = await Promise.all([
+        getDeviceVersions(leftDevice.id),
+        getDeviceVersions(rightDevice.id),
+      ]);
+      const versions1 = data1?.versions || [];
+      const versions2 = data2?.versions || [];
+      if (versions1.length === 0) {
+        setError(`У устройства «${leftDevice.hostname}» нет сохранённых версий конфигурации`);
+        return;
+      }
+      if (versions2.length === 0) {
+        setError(`У устройства «${rightDevice.hostname}» нет сохранённых версий конфигурации`);
+        return;
+      }
+      const leftVersionId = versions1[0].id;
+      const rightVersionId = versions2[0].id;
+      const diff = await getVersionDiff(leftVersionId, rightVersionId);
       setDiffData(diff);
       setDialogOpen(true);
     } catch (error) {
-      setError('Не удалось выполнить сравнение. Проверьте соединение с сервером');
+      const msg = error.response?.data?.error || error.message;
+      setError(msg || 'Не удалось выполнить сравнение. Проверьте соединение с сервером');
     } finally {
       setCompareLoading(false);
     }

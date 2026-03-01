@@ -37,7 +37,7 @@ docker compose build
 Замените `ВАШ_ЛОГИН` на ваш логин Docker Hub.
 
 ```bash
-export DOCKERHUB_USER=ВАШ_ЛОГИН
+export DOCKERHUB_USER=soraychik
 
 docker tag blackbox-skeleton-api-web:latest    $DOCKERHUB_USER/blackbox-api-web:latest
 docker tag blackbox-skeleton-scheduler:latest  $DOCKERHUB_USER/blackbox-scheduler:latest

@@ -50,13 +50,16 @@ export const getVersions = async () => {
 
 export const getVersionContent = async (versionId) => {
   const response = await api.get(`/versions/${versionId}/content`, {
-    responseType: 'text'
+    responseType: 'text',
+    timeout: 60000, // большие конфиги (800KB+) — даём до 60 с
   });
   return response.data;
 };
 
 export const getVersionDiff = async (versionId1, versionId2) => {
-  const response = await api.get(`/versions/diff/${versionId1}/${versionId2}`);
+  const response = await api.get(`/versions/diff/${versionId1}/${versionId2}`, {
+    timeout: 90000, // сравнение двух больших конфигов
+  });
   return response.data;
 };
 

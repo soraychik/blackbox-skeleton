@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  alpha,
   Box,
   Button,
   CircularProgress,
@@ -103,9 +102,20 @@ const ConfigViewDialog = ({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="lg"
+      fullWidth
+      PaperProps={{
+        sx: {
+          bgcolor: isDark ? 'background.paper' : undefined,
+          color: isDark ? 'text.primary' : undefined,
+        },
+      }}
+    >
       <DialogContent sx={{ p: 0 }}>
-        {/* Шапка */}
+        {/* Шапка — в тёмной теме в тон приложению */}
         <Box
           sx={{
             display: 'flex',
@@ -114,6 +124,7 @@ const ConfigViewDialog = ({
             p: 2,
             borderBottom: 1,
             borderColor: 'divider',
+            ...(isDark ? { bgcolor: 'background.paper', color: 'text.primary' } : {}),
           }}
         >
           <Typography variant="h6">{title}</Typography>
@@ -217,8 +228,11 @@ const ConfigViewDialog = ({
                       display: 'flex',
                       gap: 2,
                       mb: 0.5,
+                      // Светлая тема: вся строка серая, текст синий. Тёмная: та же гамма — серая строка + синий текст
                       bgcolor: snippet.match
-                        ? (t) => alpha(t.palette.primary.main, 0.22)
+                        ? isDark
+                          ? '#475569'   // серый фон строки (на тёмном фоне)
+                          : '#e5e7eb'   // серый фон строки (светлая тема)
                         : 'transparent',
                       borderRadius: 0.5,
                       px: 1,
@@ -230,7 +244,7 @@ const ConfigViewDialog = ({
                       sx={{
                         ...lineNumberSx,
                         ...(snippet.match
-                          ? { color: 'primary.dark', fontWeight: 600 }
+                          ? { color: isDark ? 'primary.light' : 'primary.dark', fontWeight: 600 }
                           : {}),
                       }}
                     >
@@ -244,7 +258,7 @@ const ConfigViewDialog = ({
                         whiteSpace: 'pre-wrap',
                         wordBreak: 'break-all',
                         ...(snippet.match
-                          ? { color: 'primary.dark', fontWeight: 600 }
+                          ? { color: isDark ? 'primary.light' : 'primary.dark', fontWeight: 600 }
                           : {}),
                       }}
                     >
