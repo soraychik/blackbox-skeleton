@@ -218,6 +218,8 @@ const Devices = () => {
                 setPage(0);
               }}
               rowsPerPageOptions={[10, 25, 50, 100]}
+              labelRowsPerPage="Строк на странице:"
+              labelDisplayedRows={({ from, to, count }) => `${from}–${to} из ${count}`}
             />
           </>
         )}

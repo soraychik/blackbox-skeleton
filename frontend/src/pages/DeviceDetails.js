@@ -34,7 +34,7 @@ import {
   FileDownload as FileDownloadIcon,
 } from '@mui/icons-material';
 import { getDeviceVersions, getVersionContent, getVersionDiff, getDiffByDate, exportConfigByDate } from '../utils/api';
-import { formatDateTime } from '../utils/dateFormatter';
+import { formatDateTime, toDDMMYYYY } from '../utils/dateFormatter';
 import ChangesTab from '../components/ChangesTab';
 import ConfigViewDialog from '../components/ConfigViewDialog';
 
@@ -125,7 +125,14 @@ const DeviceDetails = () => {
       setCompareDialog({ open: true, diffData: diff, loading: false });
     } catch (error) {
       const msg = error.response?.data?.error || error.message;
-      setCompareByDateError(msg);
+      const withLast = typeof msg === 'string' && msg.match(/no version for date (\S+); last config registered: (\S+)/);
+      const onlyDate = typeof msg === 'string' && msg.match(/no version for date (\S+)/);
+      const formatted = withLast
+        ? `Версия для даты ${toDDMMYYYY(withLast[1])} не обнаружена. Последняя дата регистрации: ${toDDMMYYYY(withLast[2])}`
+        : onlyDate
+          ? `Версия для даты ${toDDMMYYYY(onlyDate[1])} не обнаружена.`
+          : msg;
+      setCompareByDateError(formatted);
       setCompareDialog({ open: false, diffData: null, loading: false });
     } finally {
       setCompareByDateLoading(false);
@@ -158,8 +165,8 @@ const DeviceDetails = () => {
           const text = await error.response.data.text();
           const data = JSON.parse(text);
           const msg = data.last_registered_date
-            ? `${data.error} Последняя регистрация: ${data.last_registered_date}`
-            : data.error;
+            ? `Конфиг для даты ${toDDMMYYYY(exportDate)} не обнаружен. Последняя дата регистрации: ${toDDMMYYYY(data.last_registered_date)}`
+            : `Конфиг для даты ${toDDMMYYYY(exportDate)} не обнаружен.`;
           setExportError(msg);
         } catch {
           setExportError(error.message);
@@ -351,7 +358,7 @@ const DeviceDetails = () => {
             </Grid>
             {compareByDateError && (
               <Grid item xs={12}>
-                <Alert severity="warning" onClose={() => setCompareByDateError('')}>
+                <Alert severity="error" onClose={() => setCompareByDateError('')}>
                   {compareByDateError}
                 </Alert>
               </Grid>
@@ -394,7 +401,7 @@ const DeviceDetails = () => {
             </Grid>
             {exportError && (
               <Grid item xs={12}>
-                <Alert severity="warning" onClose={() => setExportError('')}>
+                <Alert severity="error" onClose={() => setExportError('')}>
                   {exportError}
                 </Alert>
               </Grid>

@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
+  alpha,
   Box,
   Button,
   CircularProgress,
@@ -7,23 +8,26 @@ import {
   DialogContent,
   IconButton,
   Typography,
+  useTheme,
 } from '@mui/material';
 import {
   Close as CloseIcon,
   Download as DownloadIcon,
+  Visibility as VisibilityIcon,
 } from '@mui/icons-material';
 
 /**
  * Универсальный диалог просмотра конфигурации.
  *
  * Props:
- *   open          — boolean
- *   onClose       — () => void
- *   title         — string, заголовок диалога
- *   content       — string | null, полный текст конфига (если передан — показывается как есть)
- *   snippets      — array | null, массив { line, text, match } (если передан — показываются сниппеты)
- *   onDownload    — () => void | null, колбэк скачивания
+ *   open            — boolean
+ *   onClose         — () => void
+ *   title           — string, заголовок диалога
+ *   content         — string | null, полный текст конфига (если передан — показывается как есть)
+ *   snippets        — array | null, массив { line, text, match } (если передан — показываются сниппеты)
+ *   onDownload      — () => void | null, колбэк скачивания
  *   downloadLoading — boolean
+ *   onViewFullFile  — () => Promise<string> | null, загрузка полного файла (кнопка «Посмотреть весь файл»)
  */
 const ConfigViewDialog = ({
   open,
@@ -33,7 +37,71 @@ const ConfigViewDialog = ({
   snippets = null,
   onDownload = null,
   downloadLoading = false,
+  onViewFullFile = null,
 }) => {
+  const theme = useTheme();
+  const isDark = theme.palette.mode === 'dark';
+
+  const [fullContent, setFullContent] = useState(null);
+  const [loadingFull, setLoadingFull] = useState(false);
+
+  const displayContent = content !== null ? content : fullContent;
+  const isFullFileMode = displayContent !== null;
+  const showViewFullButton = snippets !== null && !isFullFileMode && onViewFullFile != null;
+
+  // Стили в зависимости от темы: светлая — белый фон и чёрный текст, тёмная — как в приложении
+  const codeBlockSx = useMemo(
+    () => ({
+      fontFamily: 'monospace',
+      fontSize: '0.875rem',
+      ...(isDark
+        ? { bgcolor: 'background.default', color: 'text.primary' }
+        : { bgcolor: '#fff', color: '#000' }),
+    }),
+    [isDark]
+  );
+
+  // Нумерация по правому краю, фиксированная ширина — строки текста начинаются друг под другом
+  const lineNumberSx = useMemo(
+    () => ({
+      width: 56,
+      minWidth: 56,
+      color: 'text.disabled',
+      userSelect: 'none',
+      fontFamily: 'monospace',
+      fontSize: '0.875rem',
+      flexShrink: 0,
+      textAlign: 'right',
+      pr: 2,
+    }),
+    []
+  );
+
+  // Одна строка номеров для всего файла — без построчного рендера, чтобы не тормозить
+  const fullContentLineNumbers = useMemo(() => {
+    if (!displayContent) return '';
+    const lineCount = (displayContent || '').split('\n').length;
+    return Array.from({ length: lineCount }, (_, i) => i + 1).join('\n');
+  }, [displayContent]);
+
+  useEffect(() => {
+    if (!open) {
+      setFullContent(null);
+      setLoadingFull(false);
+    }
+  }, [open]);
+
+  const handleViewFullFile = async () => {
+    if (!onViewFullFile) return;
+    setLoadingFull(true);
+    try {
+      const text = await onViewFullFile();
+      setFullContent(text);
+    } finally {
+      setLoadingFull(false);
+    }
+  };
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
       <DialogContent sx={{ p: 0 }}>
@@ -66,39 +134,78 @@ const ConfigViewDialog = ({
                 Скачать
               </Button>
             )}
+            {showViewFullButton && (
+              <Button
+                size="small"
+                startIcon={
+                  loadingFull ? (
+                    <CircularProgress size={16} color="inherit" />
+                  ) : (
+                    <VisibilityIcon />
+                  )
+                }
+                onClick={handleViewFullFile}
+                disabled={loadingFull}
+              >
+                Посмотреть весь файл
+              </Button>
+            )}
             <IconButton onClick={onClose}>
               <CloseIcon />
             </IconButton>
           </Box>
         </Box>
 
-        {/* Тело */}
+        {/* Тело: светлая тема — белый фон и чёрный текст, тёмная — как в приложении */}
         <Box
           sx={{
             maxHeight: '70vh',
             overflow: 'auto',
-            bgcolor: 'background.default',
+            ...codeBlockSx,
           }}
         >
-          {/* Режим полного текста */}
-          {content !== null && (
+          {/* Режим полного текста: два pre (номера + контент), без построчного рендера */}
+          {isFullFileMode && (
             <Box
-              component="pre"
               sx={{
                 p: 2,
-                m: 0,
-                fontFamily: 'monospace',
-                fontSize: '0.875rem',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-all',
+                display: 'flex',
+                gap: 0,
+                alignItems: 'flex-start',
+                minHeight: '100%',
               }}
             >
-              {content}
+              <Box
+                component="pre"
+                sx={{
+                  m: 0,
+                  ...codeBlockSx,
+                  ...lineNumberSx,
+                  whiteSpace: 'pre',
+                  lineHeight: 1.5,
+                  flexShrink: 0,
+                }}
+              >
+                {fullContentLineNumbers}
+              </Box>
+              <Box
+                component="pre"
+                sx={{
+                  m: 0,
+                  flex: 1,
+                  ...codeBlockSx,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                  lineHeight: 1.5,
+                }}
+              >
+                {displayContent || ''}
+              </Box>
             </Box>
           )}
 
-          {/* Режим сниппетов */}
-          {snippets !== null && (
+          {/* Режим сниппетов — тот же стиль + синяя подсветка совпадений */}
+          {snippets !== null && !isFullFileMode && (
             <Box sx={{ p: 2 }}>
               {snippets.length === 0 ? (
                 <Typography color="text.secondary">Нет сниппетов</Typography>
@@ -110,7 +217,9 @@ const ConfigViewDialog = ({
                       display: 'flex',
                       gap: 2,
                       mb: 0.5,
-                      bgcolor: snippet.match ? 'action.selected' : 'transparent',
+                      bgcolor: snippet.match
+                        ? (t) => alpha(t.palette.primary.main, 0.22)
+                        : 'transparent',
                       borderRadius: 0.5,
                       px: 1,
                       py: 0.25,
@@ -119,12 +228,10 @@ const ConfigViewDialog = ({
                     <Typography
                       component="span"
                       sx={{
-                        minWidth: 40,
-                        color: 'text.disabled',
-                        userSelect: 'none',
-                        fontFamily: 'monospace',
-                        fontSize: '0.875rem',
-                        flexShrink: 0,
+                        ...lineNumberSx,
+                        ...(snippet.match
+                          ? { color: 'primary.dark', fontWeight: 600 }
+                          : {}),
                       }}
                     >
                       {snippet.line}
@@ -132,12 +239,13 @@ const ConfigViewDialog = ({
                     <Typography
                       component="span"
                       sx={{
-                        fontFamily: 'monospace',
-                        fontSize: '0.875rem',
+                        ...codeBlockSx,
+                        flex: 1,
                         whiteSpace: 'pre-wrap',
                         wordBreak: 'break-all',
-                        fontWeight: snippet.match ? 600 : 400,
-                        color: snippet.match ? 'primary.main' : 'text.secondary',
+                        ...(snippet.match
+                          ? { color: 'primary.dark', fontWeight: 600 }
+                          : {}),
                       }}
                     >
                       {snippet.text}

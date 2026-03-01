@@ -237,6 +237,11 @@ const Search = () => {
         snippets={snippetsDialog.snippets}
         onDownload={snippetsDialog.versionId ? handleDownloadConfig : null}
         downloadLoading={snippetsDialog.downloadLoading}
+        onViewFullFile={
+          snippetsDialog.versionId
+            ? () => getVersionContent(snippetsDialog.versionId)
+            : null
+        }
       />
     </Box>
   );
