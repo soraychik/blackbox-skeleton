@@ -131,7 +131,7 @@ const ConfigViewDialog = ({
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
             {onDownload && (
               <Button
-                size="small"
+                size="medium"
                 startIcon={
                   downloadLoading ? (
                     <CircularProgress size={16} color="inherit" />
@@ -147,7 +147,7 @@ const ConfigViewDialog = ({
             )}
             {showViewFullButton && (
               <Button
-                size="small"
+                size="medium"
                 startIcon={
                   loadingFull ? (
                     <CircularProgress size={16} color="inherit" />

@@ -14,7 +14,7 @@ import {
 import { getVersions, getVersionDiff } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
 
-const DiffRow = ({ line, theme }) => {
+const DiffRow = ({ line, theme, lineNumWidth }) => {
   const isDark = theme.palette.mode === 'dark';
 
   const getBackgroundColor = () => {
@@ -51,8 +51,8 @@ const DiffRow = ({ line, theme }) => {
       >
         <Box
           sx={{
-            width: 40,
-            minWidth: 40,
+            width: lineNumWidth,
+            minWidth: lineNumWidth,
             px: 1,
             textAlign: 'right',
             color: 'text.secondary',
@@ -66,7 +66,7 @@ const DiffRow = ({ line, theme }) => {
             lineHeight: '20px',
           }}
         >
-          {line.leftLineNum || ''}
+          {(line.type === 'removed' || line.type === 'unchanged') ? line.leftLineNum : ''}
         </Box>
         <Box
           sx={{
@@ -80,8 +80,8 @@ const DiffRow = ({ line, theme }) => {
             lineHeight: '20px',
           }}
         >
-          {line.leftLineNum
-            ? (line.type === 'removed' ? '−' : '') + (line.content || '')
+          {(line.type === 'removed' || line.type === 'unchanged')
+            ? (line.type === 'removed' ? '− ' : '  ') + (line.content || '')
             : ''}
         </Box>
       </Box>
@@ -93,8 +93,8 @@ const DiffRow = ({ line, theme }) => {
       >
         <Box
           sx={{
-            width: 40,
-            minWidth: 40,
+            width: lineNumWidth,
+            minWidth: lineNumWidth,
             px: 1,
             textAlign: 'right',
             color: 'text.secondary',
@@ -108,7 +108,7 @@ const DiffRow = ({ line, theme }) => {
             lineHeight: '20px',
           }}
         >
-          {line.rightLineNum || ''}
+          {(line.type === 'added' || line.type === 'unchanged') ? line.rightLineNum : ''}
         </Box>
         <Box
           sx={{
@@ -122,8 +122,8 @@ const DiffRow = ({ line, theme }) => {
             lineHeight: '20px',
           }}
         >
-          {line.rightLineNum
-            ? (line.type === 'added' ? '+' : '') + (line.content || '')
+          {(line.type === 'added' || line.type === 'unchanged')
+            ? (line.type === 'added' ? '+ ' : '  ') + (line.content || '')
             : ''}
         </Box>
       </Box>
@@ -158,7 +158,7 @@ const DiffStats = ({ stats, totalLines, theme }) => (
   </Box>
 );
 
-const ChangesTab = ({ embedded = false, initialDiffData = null }) => {
+const ChangesTab = ({ embedded = false, initialDiffData = null, deviceName = null, version1Date = null, version2Date = null }) => {
   const theme = useTheme();
   const [versions, setVersions] = useState([]);
   const [loading, setLoading] = useState(!embedded);
@@ -234,11 +234,7 @@ const ChangesTab = ({ embedded = false, initialDiffData = null }) => {
 
     const lines = diffData.lines;
 
-    const stats = {
-      added: 0,
-      removed: 0,
-    };
-
+    const stats = { added: 0, removed: 0 };
     lines.forEach(line => {
       if (line.type === 'added') stats.added++;
       if (line.type === 'removed') stats.removed++;
@@ -255,16 +251,23 @@ const ChangesTab = ({ embedded = false, initialDiffData = null }) => {
     lines.forEach((line) => {
       processedLines.push({
         ...line,
-        leftLineNum: line.type === 'removed' || line.type === 'unchanged' ? leftLineNum++ : null,
-        rightLineNum: line.type === 'added' || line.type === 'unchanged' ? rightLineNum++ : null,
+        leftLineNum: line.left_num !== undefined ? line.left_num : (line.type === 'removed' || line.type === 'unchanged' ? leftLineNum++ : null),
+        rightLineNum: line.right_num !== undefined ? line.right_num : (line.type === 'added' || line.type === 'unchanged' ? rightLineNum++ : null),
       });
     });
+
+    const maxLineNum = Math.max(
+      ...processedLines.map(l => l.leftLineNum || 0),
+      ...processedLines.map(l => l.rightLineNum || 0),
+    );
+    const lineNumWidth = Math.max(40, String(maxLineNum).length * 9 + 16);
 
     return {
       identical: false,
       stats,
       lines: processedLines,
       totalLines: lines.length,
+      lineNumWidth,
     };
   }, [diffData]);
 
@@ -419,17 +422,17 @@ const ChangesTab = ({ embedded = false, initialDiffData = null }) => {
                   borderColor: 'divider',
                 }}
               >
-                <Box sx={{ p: 1, fontSize: '0.75rem', fontWeight: 600, color: 'text.secondary' }}>
-                  {version1Info ? `${version1Info.device_hostname} (${formatDateTime(version1Info.created_at)})` : `Версия ${diffData.left_version_id}`}
+                <Box sx={{ p: 1, fontSize: '0.875rem', fontWeight: 600, color: 'text.secondary' }}>
+                  {version1Info ? `${version1Info.device_hostname} (${formatDateTime(version1Info.created_at)})` : (deviceName && version1Date ? `${deviceName} (${version1Date})` : `Версия ${diffData.left_version_id}`)}
                 </Box>
-                <Box sx={{ p: 1, fontSize: '0.75rem', fontWeight: 600, color: 'text.secondary', borderLeft: { md: 1 }, borderColor: 'divider' }}>
-                  {version2Info ? `${version2Info.device_hostname} (${formatDateTime(version2Info.created_at)})` : `Версия ${diffData.right_version_id}`}
+                <Box sx={{ p: 1, fontSize: '0.875rem', fontWeight: 600, color: 'text.secondary', borderLeft: { md: 1 }, borderColor: 'divider' }}>
+                  {version2Info ? `${version2Info.device_hostname} (${formatDateTime(version2Info.created_at)})` : (deviceName && version2Date ? `${deviceName} (${version2Date})` : `Версия ${diffData.right_version_id}`)}
                 </Box>
               </Box>
 
               <Box sx={{ fontFamily: 'monospace', fontSize: '0.75rem', lineHeight: '20px' }}>
                 {processedDiff.lines.map((line, idx) => (
-                  <DiffRow key={`line-${idx}`} line={line} theme={theme} />
+                  <DiffRow key={`line-${idx}`} line={line} theme={theme} lineNumWidth={processedDiff.lineNumWidth} />
                 ))}
               </Box>
             </>
