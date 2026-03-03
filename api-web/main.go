@@ -137,9 +137,9 @@ type DiffIndex struct {
 const versionContentCacheMaxEntries = 50
 
 type versionContentCache struct {
-	mu     sync.RWMutex
-	byID   map[int][]byte
-	order  []int
+	mu    sync.RWMutex
+	byID  map[int][]byte
+	order []int
 }
 
 func newVersionContentCache() *versionContentCache {
@@ -520,9 +520,11 @@ func getVersionByID(db *sql.DB, id int) (*ConfigVersion, error) {
 }
 
 type DiffLine struct {
-	Type    string `json:"type"`
-	Content string `json:"content"`
-	LineNum int    `json:"line_num"`
+	Type     string `json:"type"`
+	Content  string `json:"content"`
+	LineNum  int    `json:"line_num"`
+	LeftNum  int    `json:"left_num,omitempty"`
+	RightNum int    `json:"right_num,omitempty"`
 }
 
 type DiffResult struct {
@@ -626,6 +628,8 @@ func getVersionDiff(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+const CONTEXT_LINES = 3
+
 func computeDiffLines(text1, text2 string) []DiffLine {
 	dmp := diffmatchpatch.New()
 	lineChar1, lineChar2, lineArray := dmp.DiffLinesToChars(text1, text2)
@@ -633,7 +637,15 @@ func computeDiffLines(text1, text2 string) []DiffLine {
 	diffs = dmp.DiffCleanupSemantic(diffs)
 	diffs = dmp.DiffCharsToLines(diffs, lineArray)
 
-	var result []DiffLine
+	type tempLine struct {
+		Type      string
+		Content   string
+		LeftNum   int
+		RightNum  int
+		isChanged bool
+	}
+
+	var allLines []tempLine
 	leftLineNum := 1
 	rightLineNum := 1
 
@@ -642,32 +654,76 @@ func computeDiffLines(text1, text2 string) []DiffLine {
 		if len(lines) > 0 && lines[len(lines)-1] == "" {
 			lines = lines[:len(lines)-1]
 		}
-
 		for _, line := range lines {
+			tl := tempLine{LeftNum: leftLineNum, RightNum: rightLineNum}
 			switch d.Type {
 			case diffmatchpatch.DiffEqual:
-				result = append(result, DiffLine{
-					Type:    "unchanged",
-					Content: line,
-					LineNum: leftLineNum,
-				})
+				tl.Type = "unchanged"
+				tl.Content = line
 				leftLineNum++
 				rightLineNum++
 			case diffmatchpatch.DiffDelete:
-				result = append(result, DiffLine{
-					Type:    "removed",
-					Content: line,
-					LineNum: leftLineNum,
-				})
+				tl.Type = "removed"
+				tl.Content = line
+				tl.isChanged = true
 				leftLineNum++
 			case diffmatchpatch.DiffInsert:
-				result = append(result, DiffLine{
-					Type:    "added",
-					Content: line,
-					LineNum: rightLineNum,
-				})
+				tl.Type = "added"
+				tl.Content = line
+				tl.isChanged = true
 				rightLineNum++
 			}
+			allLines = append(allLines, tl)
+		}
+	}
+
+	hasChanges := false
+	for _, line := range allLines {
+		if line.isChanged {
+			hasChanges = true
+			break
+		}
+	}
+	if !hasChanges {
+		var result []DiffLine
+		for _, tl := range allLines {
+			result = append(result, DiffLine{
+				Type:     tl.Type,
+				Content:  tl.Content,
+				LeftNum:  tl.LeftNum,
+				RightNum: tl.RightNum,
+			})
+		}
+		return result
+	}
+
+	seenIdx := make(map[int]bool)
+	for i, line := range allLines {
+		if !line.isChanged {
+			continue
+		}
+		start := i - CONTEXT_LINES
+		if start < 0 {
+			start = 0
+		}
+		end := i + CONTEXT_LINES + 1
+		if end > len(allLines) {
+			end = len(allLines)
+		}
+		for j := start; j < end; j++ {
+			seenIdx[j] = true
+		}
+	}
+
+	var result []DiffLine
+	for i, tl := range allLines {
+		if seenIdx[i] {
+			result = append(result, DiffLine{
+				Type:     tl.Type,
+				Content:  tl.Content,
+				LeftNum:  tl.LeftNum,
+				RightNum: tl.RightNum,
+			})
 		}
 	}
 
