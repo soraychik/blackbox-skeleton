@@ -55,7 +55,7 @@ func (ifp *ImprovedFileProcessor) ProcessFile(filePath string) (*models.FileInfo
 
 	normalizedContent := normalizeLineEndings(content)
 	hash := ifp.calculateHash(normalizedContent)
-	hostname := strings.TrimSuffix(fileInfo.Name(), filepath.Ext(fileInfo.Name()))
+	hostname := fileInfo.Name()
 
 	return &models.FileInfo{
 		Name:     fileInfo.Name(),

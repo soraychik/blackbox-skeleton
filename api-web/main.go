@@ -11,10 +11,12 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"blackbox-api/internal/storage"
 	"github.com/gin-contrib/cors"
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/sergi/go-diff/diffmatchpatch"
@@ -32,6 +34,8 @@ func main() {
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
+	// Сжатие ответов (особенно контент конфигов 800KB+) — быстрее передача по сети
+	router.Use(gzip.Gzip(gzip.DefaultCompression))
 
 	router.GET("/", func(c *gin.Context) {
 		c.String(http.StatusOK, "BlackBox API Web is running...")
@@ -128,6 +132,55 @@ type DiffIndex struct {
 	DiffContent    *string   `json:"diff_content,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 }
+
+// versionContentCache — кэш собранного контента версий (просмотр/сравнение открываются быстрее при повторе).
+const versionContentCacheMaxEntries = 50
+
+type versionContentCache struct {
+	mu    sync.RWMutex
+	byID  map[int][]byte
+	order []int
+}
+
+func newVersionContentCache() *versionContentCache {
+	return &versionContentCache{byID: make(map[int][]byte)}
+}
+
+func (c *versionContentCache) Get(id int) ([]byte, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	b, ok := c.byID[id]
+	if !ok {
+		return nil, false
+	}
+	// Возвращаем копию, чтобы кэш не меняли снаружи
+	out := make([]byte, len(b))
+	copy(out, b)
+	return out, true
+}
+
+func (c *versionContentCache) Set(id int, content []byte) {
+	if len(content) == 0 {
+		return
+	}
+	clone := make([]byte, len(content))
+	copy(clone, content)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, exists := c.byID[id]; exists {
+		c.byID[id] = clone
+		return
+	}
+	for len(c.order) >= versionContentCacheMaxEntries {
+		evict := c.order[0]
+		c.order = c.order[1:]
+		delete(c.byID, evict)
+	}
+	c.byID[id] = clone
+	c.order = append(c.order, id)
+}
+
+var globalContentCache = newVersionContentCache()
 
 func getDevices(c *gin.Context) {
 	db, err := NewDB()
@@ -381,7 +434,7 @@ func getVersionContent(c *gin.Context) {
 		return
 	}
 
-	content, err := reconstructVersionContent(c.Request.Context(), db, minioClient, &version)
+	content, err := getCachedVersionContent(c.Request.Context(), db, minioClient, &version)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to reconstruct version: %v", err)})
 		return
@@ -392,7 +445,20 @@ func getVersionContent(c *gin.Context) {
 		log.Printf("Warning: hash mismatch for version %d: expected %s, got %s", id, version.VersionHash, computedHash)
 	}
 
-	c.String(http.StatusOK, string(content))
+	c.Data(http.StatusOK, "text/plain; charset=utf-8", content)
+}
+
+// getCachedVersionContent возвращает контент версии (из кэша или после сборки), заполняет кэш при промахе.
+func getCachedVersionContent(ctx context.Context, db *sql.DB, minioClient *storage.MinIOImprovedClient, version *ConfigVersion) ([]byte, error) {
+	if content, ok := globalContentCache.Get(version.ID); ok {
+		return content, nil
+	}
+	content, err := reconstructVersionContent(ctx, db, minioClient, version)
+	if err != nil {
+		return nil, err
+	}
+	globalContentCache.Set(version.ID, content)
+	return content, nil
 }
 
 func reconstructVersionContent(ctx context.Context, db *sql.DB, minioClient *storage.MinIOImprovedClient, version *ConfigVersion) ([]byte, error) {
@@ -409,7 +475,7 @@ func reconstructVersionContent(ctx context.Context, db *sql.DB, minioClient *sto
 			return nil, fmt.Errorf("failed to get parent version: %w", err)
 		}
 
-		baseContent, err := reconstructVersionContent(ctx, db, minioClient, parentVersion)
+		baseContent, err := getCachedVersionContent(ctx, db, minioClient, parentVersion)
 		if err != nil {
 			return nil, fmt.Errorf("failed to reconstruct parent: %w", err)
 		}
@@ -454,9 +520,11 @@ func getVersionByID(db *sql.DB, id int) (*ConfigVersion, error) {
 }
 
 type DiffLine struct {
-	Type    string `json:"type"`
-	Content string `json:"content"`
-	LineNum int    `json:"line_num"`
+	Type     string `json:"type"`
+	Content  string `json:"content"`
+	LineNum  int    `json:"line_num"`
+	LeftNum  int    `json:"left_num,omitempty"`
+	RightNum int    `json:"right_num,omitempty"`
 }
 
 type DiffResult struct {
@@ -519,13 +587,13 @@ func getVersionDiff(c *gin.Context) {
 		return
 	}
 
-	content1, err := reconstructVersionContent(c.Request.Context(), db, minioClient, version1)
+	content1, err := getCachedVersionContent(c.Request.Context(), db, minioClient, version1)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get content 1: %v", err)})
 		return
 	}
 
-	content2, err := reconstructVersionContent(c.Request.Context(), db, minioClient, version2)
+	content2, err := getCachedVersionContent(c.Request.Context(), db, minioClient, version2)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get content 2: %v", err)})
 		return
@@ -560,6 +628,8 @@ func getVersionDiff(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+const CONTEXT_LINES = 3
+
 func computeDiffLines(text1, text2 string) []DiffLine {
 	dmp := diffmatchpatch.New()
 	lineChar1, lineChar2, lineArray := dmp.DiffLinesToChars(text1, text2)
@@ -567,7 +637,15 @@ func computeDiffLines(text1, text2 string) []DiffLine {
 	diffs = dmp.DiffCleanupSemantic(diffs)
 	diffs = dmp.DiffCharsToLines(diffs, lineArray)
 
-	var result []DiffLine
+	type tempLine struct {
+		Type      string
+		Content   string
+		LeftNum   int
+		RightNum  int
+		isChanged bool
+	}
+
+	var allLines []tempLine
 	leftLineNum := 1
 	rightLineNum := 1
 
@@ -576,32 +654,76 @@ func computeDiffLines(text1, text2 string) []DiffLine {
 		if len(lines) > 0 && lines[len(lines)-1] == "" {
 			lines = lines[:len(lines)-1]
 		}
-
 		for _, line := range lines {
+			tl := tempLine{LeftNum: leftLineNum, RightNum: rightLineNum}
 			switch d.Type {
 			case diffmatchpatch.DiffEqual:
-				result = append(result, DiffLine{
-					Type:    "unchanged",
-					Content: line,
-					LineNum: leftLineNum,
-				})
+				tl.Type = "unchanged"
+				tl.Content = line
 				leftLineNum++
 				rightLineNum++
 			case diffmatchpatch.DiffDelete:
-				result = append(result, DiffLine{
-					Type:    "removed",
-					Content: line,
-					LineNum: leftLineNum,
-				})
+				tl.Type = "removed"
+				tl.Content = line
+				tl.isChanged = true
 				leftLineNum++
 			case diffmatchpatch.DiffInsert:
-				result = append(result, DiffLine{
-					Type:    "added",
-					Content: line,
-					LineNum: rightLineNum,
-				})
+				tl.Type = "added"
+				tl.Content = line
+				tl.isChanged = true
 				rightLineNum++
 			}
+			allLines = append(allLines, tl)
+		}
+	}
+
+	hasChanges := false
+	for _, line := range allLines {
+		if line.isChanged {
+			hasChanges = true
+			break
+		}
+	}
+	if !hasChanges {
+		var result []DiffLine
+		for _, tl := range allLines {
+			result = append(result, DiffLine{
+				Type:     tl.Type,
+				Content:  tl.Content,
+				LeftNum:  tl.LeftNum,
+				RightNum: tl.RightNum,
+			})
+		}
+		return result
+	}
+
+	seenIdx := make(map[int]bool)
+	for i, line := range allLines {
+		if !line.isChanged {
+			continue
+		}
+		start := i - CONTEXT_LINES
+		if start < 0 {
+			start = 0
+		}
+		end := i + CONTEXT_LINES + 1
+		if end > len(allLines) {
+			end = len(allLines)
+		}
+		for j := start; j < end; j++ {
+			seenIdx[j] = true
+		}
+	}
+
+	var result []DiffLine
+	for i, tl := range allLines {
+		if seenIdx[i] {
+			result = append(result, DiffLine{
+				Type:     tl.Type,
+				Content:  tl.Content,
+				LeftNum:  tl.LeftNum,
+				RightNum: tl.RightNum,
+			})
 		}
 	}
 
@@ -681,12 +803,12 @@ func getDiffByDate(c *gin.Context) {
 		return
 	}
 
-	content1, err := reconstructVersionContent(c.Request.Context(), db, minioClient, v1)
+	content1, err := getCachedVersionContent(c.Request.Context(), db, minioClient, v1)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get content 1: %v", err)})
 		return
 	}
-	content2, err := reconstructVersionContent(c.Request.Context(), db, minioClient, v2)
+	content2, err := getCachedVersionContent(c.Request.Context(), db, minioClient, v2)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get content 2: %v", err)})
 		return
@@ -815,7 +937,7 @@ func getExportConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to connect to MinIO: %v", err)})
 		return
 	}
-	content, err := reconstructVersionContent(c.Request.Context(), db, minioClient, version)
+	content, err := getCachedVersionContent(c.Request.Context(), db, minioClient, version)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get config content: %v", err)})
 		return
@@ -939,11 +1061,11 @@ func postSearchChanges(c *gin.Context) {
 
 		var changeList []ChangeMatch
 		for _, pair := range versions {
-			content1, err := reconstructVersionContent(c.Request.Context(), db, minioClient, pair.Left)
+			content1, err := getCachedVersionContent(c.Request.Context(), db, minioClient, pair.Left)
 			if err != nil {
 				continue
 			}
-			content2, err := reconstructVersionContent(c.Request.Context(), db, minioClient, pair.Right)
+			content2, err := getCachedVersionContent(c.Request.Context(), db, minioClient, pair.Right)
 			if err != nil {
 				continue
 			}
@@ -1099,7 +1221,7 @@ func postSearchCount(c *gin.Context) {
 			continue
 		}
 
-		content, err := reconstructVersionContent(c.Request.Context(), db, minioClient, version)
+		content, err := getCachedVersionContent(c.Request.Context(), db, minioClient, version)
 		if err != nil {
 			log.Printf("Failed to get content for device %d: %v", dv.deviceID, err)
 			continue
@@ -1130,6 +1252,35 @@ func postSearchCount(c *gin.Context) {
 }
 
 func findSnippetLines(lines []string, matches [][]int, contextLines int) []SnippetLine {
+	// Сначала определяем все номера строк (индексы 0-based), в которых есть совпадение.
+	// Так каждая строка с паттерном будет подсвечена, даже если попала в сниппет как контекст другого совпадения.
+	matchingLines := make(map[int]bool)
+	for _, match := range matches {
+		startLine := 0
+		pos := 0
+		for i, line := range lines {
+			lineLen := len(line) + 1
+			if pos+lineLen > match[0] {
+				startLine = i
+				break
+			}
+			pos += lineLen
+		}
+		endLine := startLine
+		pos = 0
+		for i, line := range lines {
+			lineLen := len(line) + 1
+			if pos+lineLen > match[1] {
+				endLine = i
+				break
+			}
+			pos += lineLen
+		}
+		for i := startLine; i <= endLine; i++ {
+			matchingLines[i] = true
+		}
+	}
+
 	seenLines := make(map[int]bool)
 	var snippetLines []SnippetLine
 
@@ -1165,11 +1316,10 @@ func findSnippetLines(lines []string, matches [][]int, contextLines int) []Snipp
 			}
 			seenLines[i] = true
 
-			isMatch := (i >= startLine && i <= endLine)
 			snippetLines = append(snippetLines, SnippetLine{
 				Line:  i + 1,
 				Text:  lines[i],
-				Match: isMatch,
+				Match: matchingLines[i], // подсвечивать все строки, где есть совпадение с паттерном
 			})
 		}
 	}

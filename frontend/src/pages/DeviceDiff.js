@@ -18,7 +18,8 @@ import {
   Compare as CompareIcon,
   Close as CloseIcon,
 } from '@mui/icons-material';
-import { getDevices, getVersionDiff } from '../utils/api';
+import { getDevices, getDeviceVersions, getVersionDiff } from '../utils/api';
+import { formatDateTime } from '../utils/dateFormatter';
 import ChangesTab from '../components/ChangesTab';
 
 const DeviceDiff = () => {
@@ -30,6 +31,8 @@ const DeviceDiff = () => {
   const [diffData, setDiffData] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [error, setError] = useState(null);
+  const [versions1, setVersions1] = useState(null);
+  const [versions2, setVersions2] = useState(null);
 
   useEffect(() => {
     loadDevices();
@@ -54,11 +57,31 @@ const DeviceDiff = () => {
     try {
       setCompareLoading(true);
       setError(null);
-      const diff = await getVersionDiff(leftDevice.id, rightDevice.id);
+      // API сравнения принимает id версий, а не устройств — берём последнюю версию каждого устройства
+      const [data1, data2] = await Promise.all([
+        getDeviceVersions(leftDevice.id),
+        getDeviceVersions(rightDevice.id),
+      ]);
+      const versions1 = data1?.versions || [];
+      const versions2 = data2?.versions || [];
+      if (versions1.length === 0) {
+        setError(`У устройства «${leftDevice.hostname}» нет сохранённых версий конфигурации`);
+        return;
+      }
+      if (versions2.length === 0) {
+        setError(`У устройства «${rightDevice.hostname}» нет сохранённых версий конфигурации`);
+        return;
+      }
+      const leftVersionId = versions1[0].id;
+      const rightVersionId = versions2[0].id;
+      const diff = await getVersionDiff(leftVersionId, rightVersionId);
+      setVersions1(versions1);
+      setVersions2(versions2);
       setDiffData(diff);
       setDialogOpen(true);
     } catch (error) {
-      setError('Не удалось выполнить сравнение. Проверьте соединение с сервером');
+      const msg = error.response?.data?.error || error.message;
+      setError(msg || 'Не удалось выполнить сравнение. Проверьте соединение с сервером');
     } finally {
       setCompareLoading(false);
     }
@@ -98,7 +121,7 @@ const DeviceDiff = () => {
             <Grid item xs={12} md={5}>
               <Autocomplete
                 options={devices}
-                getOptionLabel={(option) => `${option.hostname} (${option.mgmt_ip || '-'})`}
+                getOptionLabel={(option) => option.hostname}
                 value={leftDevice}
                 onChange={(e, value) => setLeftDevice(value)}
                 renderInput={(params) => (
@@ -112,7 +135,7 @@ const DeviceDiff = () => {
             <Grid item xs={12} md={5}>
               <Autocomplete
                 options={devices}
-                getOptionLabel={(option) => `${option.hostname} (${option.mgmt_ip || '-'})`}
+                getOptionLabel={(option) => option.hostname}
                 value={rightDevice}
                 onChange={(e, value) => setRightDevice(value)}
                 renderInput={(params) => (
@@ -152,7 +175,13 @@ const DeviceDiff = () => {
           </Box>
           <Box sx={{ p: 2 }}>
             {diffData ? (
-              <ChangesTab embedded initialDiffData={diffData} />
+              <ChangesTab 
+                embedded 
+                initialDiffData={diffData}
+                deviceName={`${leftDevice?.hostname} vs ${rightDevice?.hostname}`}
+                version1Date={versions1?.[0]?.created_at ? formatDateTime(versions1[0].created_at) : null}
+                version2Date={versions2?.[0]?.created_at ? formatDateTime(versions2[0].created_at) : null}
+              />
             ) : (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
                 <CircularProgress />

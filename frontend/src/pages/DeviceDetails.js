@@ -34,7 +34,7 @@ import {
   FileDownload as FileDownloadIcon,
 } from '@mui/icons-material';
 import { getDeviceVersions, getVersionContent, getVersionDiff, getDiffByDate, exportConfigByDate } from '../utils/api';
-import { formatDateTime } from '../utils/dateFormatter';
+import { formatDateTime, toDDMMYYYY } from '../utils/dateFormatter';
 import ChangesTab from '../components/ChangesTab';
 import ConfigViewDialog from '../components/ConfigViewDialog';
 
@@ -125,7 +125,14 @@ const DeviceDetails = () => {
       setCompareDialog({ open: true, diffData: diff, loading: false });
     } catch (error) {
       const msg = error.response?.data?.error || error.message;
-      setCompareByDateError(msg);
+      const withLast = typeof msg === 'string' && msg.match(/no version for date (\S+); last config registered: (\S+)/);
+      const onlyDate = typeof msg === 'string' && msg.match(/no version for date (\S+)/);
+      const formatted = withLast
+        ? `Версия для даты ${toDDMMYYYY(withLast[1])} не обнаружена. Последняя дата регистрации: ${toDDMMYYYY(withLast[2])}`
+        : onlyDate
+          ? `Версия для даты ${toDDMMYYYY(onlyDate[1])} не обнаружена.`
+          : msg;
+      setCompareByDateError(formatted);
       setCompareDialog({ open: false, diffData: null, loading: false });
     } finally {
       setCompareByDateLoading(false);
@@ -158,8 +165,8 @@ const DeviceDetails = () => {
           const text = await error.response.data.text();
           const data = JSON.parse(text);
           const msg = data.last_registered_date
-            ? `${data.error} Последняя регистрация: ${data.last_registered_date}`
-            : data.error;
+            ? `Конфиг для даты ${toDDMMYYYY(exportDate)} не обнаружен. Последняя дата регистрации: ${toDDMMYYYY(data.last_registered_date)}`
+            : `Конфиг для даты ${toDDMMYYYY(exportDate)} не обнаружен.`;
           setExportError(msg);
         } catch {
           setExportError(error.message);
@@ -341,7 +348,7 @@ const DeviceDetails = () => {
             </Grid>
             <Grid item xs={12}>
               <Button
-                variant="outlined"
+                variant="contained"
                 startIcon={compareByDateLoading ? <CircularProgress size={20} color="inherit" /> : <CompareIcon />}
                 onClick={handleCompareByDate}
                 disabled={!compareByDate.date1 || !compareByDate.date2 || compareByDateLoading}
@@ -351,7 +358,7 @@ const DeviceDetails = () => {
             </Grid>
             {compareByDateError && (
               <Grid item xs={12}>
-                <Alert severity="warning" onClose={() => setCompareByDateError('')}>
+                <Alert severity="error" onClose={() => setCompareByDateError('')}>
                   {compareByDateError}
                 </Alert>
               </Grid>
@@ -384,7 +391,7 @@ const DeviceDetails = () => {
             </Grid>
             <Grid item xs={12} sm={4}>
               <Button
-                variant="outlined"
+                variant="contained"
                 startIcon={exportLoading ? <CircularProgress size={20} color="inherit" /> : <DownloadIcon />}
                 onClick={handleExportByDate}
                 disabled={!exportDate || exportLoading}
@@ -394,7 +401,7 @@ const DeviceDetails = () => {
             </Grid>
             {exportError && (
               <Grid item xs={12}>
-                <Alert severity="warning" onClose={() => setExportError('')}>
+                <Alert severity="error" onClose={() => setExportError('')}>
                   {exportError}
                 </Alert>
               </Grid>
@@ -445,7 +452,7 @@ const DeviceDetails = () => {
       <ConfigViewDialog
         open={viewDialog.open}
         onClose={() => setViewDialog({ open: false, content: '', versionId: null })}
-        title="Просмотр конфигурации"
+        title={`Просмотр: ${device?.hostname || 'Устройство'}${viewDialog.versionId ? ` (версия от ${formatDateTime(versions.find(v => v.id === viewDialog.versionId)?.created_at)})` : ''}`}
         content={viewDialog.content}
         onDownload={viewDialog.versionId ? () => handleDownloadVersion(viewDialog.versionId) : null}
       />
@@ -459,7 +466,7 @@ const DeviceDetails = () => {
       >
         <DialogContent sx={{ p: 0 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>
-            <Typography variant="h6">Сравнение версий</Typography>
+            <Typography variant="h6">Сравнение версий: {device?.hostname}</Typography>
             <IconButton onClick={closeCompareDialog}>
               <CloseIcon />
             </IconButton>
@@ -470,7 +477,13 @@ const DeviceDetails = () => {
                 <CircularProgress />
               </Box>
             ) : compareDialog.diffData ? (
-              <ChangesTab embedded initialDiffData={compareDialog.diffData} />
+              <ChangesTab 
+                embedded 
+                initialDiffData={compareDialog.diffData}
+                deviceName={device?.hostname}
+                version1Date={selectedVersions.left ? formatDateTime(versions.find(v => v.id === selectedVersions.left)?.created_at) : null}
+                version2Date={selectedVersions.right ? formatDateTime(versions.find(v => v.id === selectedVersions.right)?.created_at) : null}
+              />
             ) : (
               <Typography>Ошибка при загрузке diff</Typography>
             )}
