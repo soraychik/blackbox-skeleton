@@ -348,7 +348,7 @@ const DeviceDetails = () => {
             </Grid>
             <Grid item xs={12}>
               <Button
-                variant="outlined"
+                variant="contained"
                 startIcon={compareByDateLoading ? <CircularProgress size={20} color="inherit" /> : <CompareIcon />}
                 onClick={handleCompareByDate}
                 disabled={!compareByDate.date1 || !compareByDate.date2 || compareByDateLoading}
@@ -391,7 +391,7 @@ const DeviceDetails = () => {
             </Grid>
             <Grid item xs={12} sm={4}>
               <Button
-                variant="outlined"
+                variant="contained"
                 startIcon={exportLoading ? <CircularProgress size={20} color="inherit" /> : <DownloadIcon />}
                 onClick={handleExportByDate}
                 disabled={!exportDate || exportLoading}
@@ -452,7 +452,7 @@ const DeviceDetails = () => {
       <ConfigViewDialog
         open={viewDialog.open}
         onClose={() => setViewDialog({ open: false, content: '', versionId: null })}
-        title="Просмотр конфигурации"
+        title={`Просмотр: ${device?.hostname || 'Устройство'}${viewDialog.versionId ? ` (версия от ${formatDateTime(versions.find(v => v.id === viewDialog.versionId)?.created_at)})` : ''}`}
         content={viewDialog.content}
         onDownload={viewDialog.versionId ? () => handleDownloadVersion(viewDialog.versionId) : null}
       />
@@ -466,7 +466,7 @@ const DeviceDetails = () => {
       >
         <DialogContent sx={{ p: 0 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>
-            <Typography variant="h6">Сравнение версий</Typography>
+            <Typography variant="h6">Сравнение версий: {device?.hostname}</Typography>
             <IconButton onClick={closeCompareDialog}>
               <CloseIcon />
             </IconButton>
@@ -477,7 +477,13 @@ const DeviceDetails = () => {
                 <CircularProgress />
               </Box>
             ) : compareDialog.diffData ? (
-              <ChangesTab embedded initialDiffData={compareDialog.diffData} />
+              <ChangesTab 
+                embedded 
+                initialDiffData={compareDialog.diffData}
+                deviceName={device?.hostname}
+                version1Date={selectedVersions.left ? formatDateTime(versions.find(v => v.id === selectedVersions.left)?.created_at) : null}
+                version2Date={selectedVersions.right ? formatDateTime(versions.find(v => v.id === selectedVersions.right)?.created_at) : null}
+              />
             ) : (
               <Typography>Ошибка при загрузке diff</Typography>
             )}

@@ -50,6 +50,9 @@ const SearchChanges = () => {
     loading: false,
     data: null,
     deviceId: null,
+    deviceName: null,
+    version1Date: null,
+    version2Date: null,
   });
   const [expandedRows, setExpandedRows] = useState({});
 
@@ -90,19 +93,19 @@ const SearchChanges = () => {
     }
   };
 
-  const handleShowDiff = async (leftVersionId, rightVersionId) => {
-    setDiffDialog({ open: true, loading: true, data: null, deviceId: null });
+  const handleShowDiff = async (leftVersionId, rightVersionId, deviceName, version1Date, version2Date) => {
+    setDiffDialog({ open: true, loading: true, data: null, deviceId: null, deviceName, version1Date, version2Date });
     try {
       const diffData = await getVersionDiff(leftVersionId, rightVersionId);
-      setDiffDialog({ open: true, loading: false, data: diffData, deviceId: null });
+      setDiffDialog({ open: true, loading: false, data: diffData, deviceId: null, deviceName, version1Date, version2Date });
     } catch (error) {
       setError('Не удалось загрузить сравнение версий');
-      setDiffDialog({ open: false, loading: false, data: null, deviceId: null });
+      setDiffDialog({ open: false, loading: false, data: null, deviceId: null, deviceName: null, version1Date: null, version2Date: null });
     }
   };
 
   const closeDiffDialog = () => {
-    setDiffDialog({ open: false, loading: false, data: null, deviceId: null });
+    setDiffDialog({ open: false, loading: false, data: null, deviceId: null, deviceName: null, version1Date: null, version2Date: null });
   };
 
   return (
@@ -254,7 +257,7 @@ const SearchChanges = () => {
                               {row.changes?.map((ch, idx) => (
                                 <Box
                                   key={idx}
-                                  onClick={() => handleShowDiff(ch.left_version_id, ch.right_version_id)}
+                                  onClick={() => handleShowDiff(ch.left_version_id, ch.right_version_id, row.hostname, ch.left_date, ch.right_date)}
                                   sx={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -323,7 +326,13 @@ const SearchChanges = () => {
                 <CircularProgress />
               </Box>
             ) : diffDialog.data ? (
-              <ChangesTab embedded initialDiffData={diffDialog.data} />
+              <ChangesTab 
+                embedded 
+                initialDiffData={diffDialog.data}
+                deviceName={diffDialog.deviceName}
+                version1Date={diffDialog.version1Date}
+                version2Date={diffDialog.version2Date}
+              />
             ) : null}
           </Box>
         </DialogContent>

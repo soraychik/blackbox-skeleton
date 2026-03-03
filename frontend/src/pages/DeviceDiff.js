@@ -19,6 +19,7 @@ import {
   Close as CloseIcon,
 } from '@mui/icons-material';
 import { getDevices, getDeviceVersions, getVersionDiff } from '../utils/api';
+import { formatDateTime } from '../utils/dateFormatter';
 import ChangesTab from '../components/ChangesTab';
 
 const DeviceDiff = () => {
@@ -30,6 +31,8 @@ const DeviceDiff = () => {
   const [diffData, setDiffData] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [error, setError] = useState(null);
+  const [versions1, setVersions1] = useState(null);
+  const [versions2, setVersions2] = useState(null);
 
   useEffect(() => {
     loadDevices();
@@ -72,6 +75,8 @@ const DeviceDiff = () => {
       const leftVersionId = versions1[0].id;
       const rightVersionId = versions2[0].id;
       const diff = await getVersionDiff(leftVersionId, rightVersionId);
+      setVersions1(versions1);
+      setVersions2(versions2);
       setDiffData(diff);
       setDialogOpen(true);
     } catch (error) {
@@ -116,7 +121,7 @@ const DeviceDiff = () => {
             <Grid item xs={12} md={5}>
               <Autocomplete
                 options={devices}
-                getOptionLabel={(option) => `${option.hostname} (${option.mgmt_ip || '-'})`}
+                getOptionLabel={(option) => option.hostname}
                 value={leftDevice}
                 onChange={(e, value) => setLeftDevice(value)}
                 renderInput={(params) => (
@@ -130,7 +135,7 @@ const DeviceDiff = () => {
             <Grid item xs={12} md={5}>
               <Autocomplete
                 options={devices}
-                getOptionLabel={(option) => `${option.hostname} (${option.mgmt_ip || '-'})`}
+                getOptionLabel={(option) => option.hostname}
                 value={rightDevice}
                 onChange={(e, value) => setRightDevice(value)}
                 renderInput={(params) => (
@@ -170,7 +175,13 @@ const DeviceDiff = () => {
           </Box>
           <Box sx={{ p: 2 }}>
             {diffData ? (
-              <ChangesTab embedded initialDiffData={diffData} />
+              <ChangesTab 
+                embedded 
+                initialDiffData={diffData}
+                deviceName={`${leftDevice?.hostname} vs ${rightDevice?.hostname}`}
+                version1Date={versions1?.[0]?.created_at ? formatDateTime(versions1[0].created_at) : null}
+                version2Date={versions2?.[0]?.created_at ? formatDateTime(versions2[0].created_at) : null}
+              />
             ) : (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
                 <CircularProgress />
