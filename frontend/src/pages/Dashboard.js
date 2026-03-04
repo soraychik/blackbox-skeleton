@@ -24,7 +24,7 @@ import {
   ChangeCircle as ChangeCircleIcon,
   PlayArrow as PlayArrowIcon,
 } from '@mui/icons-material';
-import { getDevices, getVersions, triggerScan } from '../utils/api';
+import { getDashboardStats, triggerScan } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
 
 const StatCard = ({ title, value, icon, color, loading }) => (
@@ -65,8 +65,6 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [scanning, setScanning] = useState(false);
-  const [devices, setDevices] = useState([]);
-  const [versions, setVersions] = useState([]);
   const [stats, setStats] = useState({
     totalDevices: 0,
     updatedToday: 0,
@@ -81,54 +79,22 @@ const Dashboard = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [devicesData, versionsData] = await Promise.all([
-        getDevices(),
-        getVersions(),
-      ]);
-
-      setDevices(devicesData);
-      setVersions(versionsData);
-
-      // Calculate stats
-      const today = new Date().toDateString();
-      const updatedToday = versionsData.filter(
-        (v) => new Date(v.created_at).toDateString() === today
-      ).length;
-
-      const deviceChangeCounts = {};
-      versionsData.forEach((v) => {
-        if (!deviceChangeCounts[v.device_id]) {
-          deviceChangeCounts[v.device_id] = 0;
-        }
-        deviceChangeCounts[v.device_id] += 1;
-      });
-
-      const devicesWithChanges = Object.keys(deviceChangeCounts).length;
+      const data = await getDashboardStats();
 
       setStats({
-        totalDevices: devicesData.length,
-        updatedToday,
-        devicesWithChanges,
+        totalDevices: data.total_devices ?? 0,
+        updatedToday: data.updated_today ?? 0,
+        devicesWithChanges: data.devices_with_changes ?? 0,
       });
 
-      // Get top devices by changes
-      const top = Object.entries(deviceChangeCounts)
-        .map(([deviceId, count]) => {
-          const device = devicesData.find((d) => d.id === parseInt(deviceId));
-          const latestVersion = versionsData
-            .filter((v) => v.device_id === parseInt(deviceId))
-            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
-          return {
-            deviceId: parseInt(deviceId),
-            hostname: device?.hostname || `Устройство #${deviceId}`,
-            changeCount: count,
-            lastChange: latestVersion?.created_at,
-          };
-        })
-        .sort((a, b) => b.changeCount - a.changeCount)
-        .slice(0, 5);
-
-      setTopDevices(top);
+      setTopDevices(
+        (data.top_devices || []).map((t) => ({
+          deviceId: t.device_id,
+          hostname: t.hostname,
+          changeCount: t.change_count,
+          lastChange: t.last_change,
+        }))
+      );
     } catch (error) {
       setError('Не удалось загрузить данные дашборда');
     } finally {
@@ -204,9 +170,6 @@ const Dashboard = () => {
         >
           {scanning ? 'Сканирование…' : 'Запустить сканирование'}
         </Button>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-          Запускает принудительное сканирование папки с файлами. После завершения отсчёт до следующего автоматического сканирования начнётся заново.
-        </Typography>
       </Box>
 
       <Card>

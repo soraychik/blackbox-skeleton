@@ -50,6 +50,7 @@ func main() {
 	router.GET("/devices", getDevices)
 	router.GET("/devices/:id", getDeviceByID)
 	router.GET("/devices/:id/versions", getDeviceVersions)
+	router.GET("/dashboard/stats", getDashboardStats)
 	router.GET("/versions", getVersions)
 	router.GET("/versions/:id/content", getVersionContent)
 	router.GET("/versions/diff/:id1/:id2", getVersionDiff)
@@ -321,6 +322,71 @@ func getVersions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"versions": versions})
+}
+
+// getDashboardStats возвращает агрегированную статистику для дашборда (без LIMIT по версиям).
+func getDashboardStats(c *gin.Context) {
+	db, err := NewDB()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
+		return
+	}
+	defer db.Close()
+
+	var totalDevices int
+	if err := db.QueryRow("SELECT COUNT(*) FROM devices").Scan(&totalDevices); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count devices"})
+		return
+	}
+
+	var updatedToday int
+	if err := db.QueryRow("SELECT COUNT(*) FROM config_versions WHERE DATE(created_at) = CURDATE()").Scan(&updatedToday); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count versions updated today"})
+		return
+	}
+
+	var devicesWithChanges int
+	if err := db.QueryRow("SELECT COUNT(DISTINCT device_id) FROM config_versions").Scan(&devicesWithChanges); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count devices with changes"})
+		return
+	}
+
+	rows, err := db.Query(`
+		SELECT d.id, d.hostname, COUNT(cv.id) AS change_count, MAX(cv.created_at) AS last_change
+		FROM devices d
+		JOIN config_versions cv ON cv.device_id = d.id
+		GROUP BY d.id, d.hostname
+		ORDER BY change_count DESC
+		LIMIT 5
+	`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query top devices"})
+		return
+	}
+	defer rows.Close()
+
+	type TopDevice struct {
+		DeviceID    int       `json:"device_id"`
+		Hostname    string    `json:"hostname"`
+		ChangeCount int       `json:"change_count"`
+		LastChange  time.Time `json:"last_change"`
+	}
+	var topDevices []TopDevice
+	for rows.Next() {
+		var t TopDevice
+		if err := rows.Scan(&t.DeviceID, &t.Hostname, &t.ChangeCount, &t.LastChange); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan top device"})
+			return
+		}
+		topDevices = append(topDevices, t)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"total_devices":        totalDevices,
+		"updated_today":        updatedToday,
+		"devices_with_changes": devicesWithChanges,
+		"top_devices":          topDevices,
+	})
 }
 
 func getDeviceVersions(c *gin.Context) {
