@@ -68,7 +68,17 @@ func (fsm *FileServerManager) LoadServers() error {
 		}
 
 		fsm.servers[id] = instance
-		log.Printf("Добавлен файловый сервер: %s (%s://%s)", id, config.Type, config.Server)
+		if config.Type == "local" {
+			log.Printf("Добавлен файловый сервер: %s (локальная папка: %s)", id, config.LocalPath)
+		} else {
+			log.Printf("Добавлен файловый сервер: %s (%s://%s)", id, config.Type, config.Server)
+		}
+	}
+
+	if len(fsm.servers) == 0 {
+		log.Printf("ВНИМАНИЕ: Не настроено ни одного источника файлов. Сканирование не будет выполняться. " +
+			"Включите локальную папку: LOCAL_FS_ENABLED=true и укажите LOCAL_FS_PATH (например /app/configs), " +
+			"либо настройте удалённый сервер: FILE_SERVER_ENABLED=true.")
 	}
 
 	return nil

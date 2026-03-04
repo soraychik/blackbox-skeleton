@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   Box,
+  Button,
   Card,
   CardContent,
   CircularProgress,
@@ -21,8 +22,9 @@ import {
   Devices as DevicesIcon,
   Update as UpdateIcon,
   ChangeCircle as ChangeCircleIcon,
+  PlayArrow as PlayArrowIcon,
 } from '@mui/icons-material';
-import { getDevices, getVersions } from '../utils/api';
+import { getDevices, getVersions, triggerScan } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
 
 const StatCard = ({ title, value, icon, color, loading }) => (
@@ -62,6 +64,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [scanning, setScanning] = useState(false);
   const [devices, setDevices] = useState([]);
   const [versions, setVersions] = useState([]);
   const [stats, setStats] = useState({
@@ -133,6 +136,19 @@ const Dashboard = () => {
     }
   };
 
+  const handleTriggerScan = async () => {
+    try {
+      setScanning(true);
+      setError(null);
+      await triggerScan();
+      await loadData();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Не удалось запустить сканирование');
+    } finally {
+      setScanning(false);
+    }
+  };
+
   return (
     <Box>
       <Typography variant="h4" fontWeight={600} gutterBottom>
@@ -177,6 +193,21 @@ const Dashboard = () => {
           />
         </Grid>
       </Grid>
+
+      <Box sx={{ mb: 3 }}>
+        <Button
+          variant="contained"
+          color="primary"
+          startIcon={scanning ? <CircularProgress size={20} color="inherit" /> : <PlayArrowIcon />}
+          onClick={handleTriggerScan}
+          disabled={scanning}
+        >
+          {scanning ? 'Сканирование…' : 'Запустить сканирование'}
+        </Button>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          Запускает принудительное сканирование папки с файлами. После завершения отсчёт до следующего автоматического сканирования начнётся заново.
+        </Typography>
+      </Box>
 
       <Card>
         <CardContent>

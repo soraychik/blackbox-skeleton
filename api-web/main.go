@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -59,6 +61,8 @@ func main() {
 	router.POST("/search/changes", postSearchChanges)
 	// ТЗ 2.3 UC-5 — поиск по конфигурациям (regexp, сниппеты)
 	router.POST("/search/count", postSearchCount)
+	// Принудительный запуск сканирования (прокси к scheduler)
+	router.POST("/scan", postTriggerScan)
 
 	log.Println("API Web server starting on :8080")
 	router.Run(":8080")
@@ -97,6 +101,31 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// postTriggerScan вызывает принудительное сканирование в scheduler и сбрасывает таймер следующего автоматического сканирования.
+func postTriggerScan(c *gin.Context) {
+	schedulerURL := getEnv("SCHEDULER_TRIGGER_URL", "http://scheduler:9090")
+	url := strings.TrimSuffix(schedulerURL, "/") + "/scan"
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(nil))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
+		return
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Trigger scan request to scheduler failed: %v", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "scheduler unreachable"})
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		c.JSON(resp.StatusCode, gin.H{"error": string(body)})
+		return
+	}
+	c.Data(resp.StatusCode, "application/json", body)
 }
 
 type Device struct {

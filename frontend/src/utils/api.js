@@ -105,5 +105,11 @@ export const searchChanges = async (body) => {
   return response.data;
 };
 
+// Принудительный запуск сканирования файлов (сбрасывает таймер до следующего автоматического)
+export const triggerScan = async () => {
+  const response = await api.post('/scan');
+  return response.data;
+};
+
 export default api;
 
