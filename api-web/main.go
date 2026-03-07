@@ -1422,13 +1422,15 @@ func findSnippetLines(lines []string, matches [][]int, contextLines int) []Snipp
 	return snippetLines
 }
 
+// compilePatterns компилирует шаблоны как буквальный текст (скобки, точки и т.д. не являются regex-метасимволами).
 func compilePatterns(patterns []string) ([]*regexp.Regexp, error) {
 	var out []*regexp.Regexp
 	for _, p := range patterns {
 		if p == "" {
 			continue
 		}
-		re, err := regexp.Compile(p)
+		literal := regexp.QuoteMeta(p)
+		re, err := regexp.Compile(literal)
 		if err != nil {
 			return nil, err
 		}
