@@ -76,11 +76,10 @@ const ConfigViewDialog = ({
     []
   );
 
-  // Одна строка номеров для всего файла — без построчного рендера, чтобы не тормозить
-  const fullContentLineNumbers = useMemo(() => {
-    if (!displayContent) return '';
-    const lineCount = (displayContent || '').split('\n').length;
-    return Array.from({ length: lineCount }, (_, i) => i + 1).join('\n');
+  // Разбиваем контент по строкам для построчного рендера: у каждой логической строки один номер слева
+  const fullContentLines = useMemo(() => {
+    if (!displayContent) return [];
+    return (displayContent || '').split('\n');
   }, [displayContent]);
 
   useEffect(() => {
@@ -175,43 +174,47 @@ const ConfigViewDialog = ({
             ...codeBlockSx,
           }}
         >
-          {/* Режим полного текста: два pre (номера + контент), без построчного рендера */}
+          {/* Режим полного текста: каждая логическая строка — один номер слева и контент справа (перенос не дублирует номер) */}
           {isFullFileMode && (
-            <Box
-              sx={{
-                p: 2,
-                display: 'flex',
-                gap: 0,
-                alignItems: 'flex-start',
-                minHeight: '100%',
-              }}
-            >
-              <Box
-                component="pre"
-                sx={{
-                  m: 0,
-                  ...codeBlockSx,
-                  ...lineNumberSx,
-                  whiteSpace: 'pre',
-                  lineHeight: 1.5,
-                  flexShrink: 0,
-                }}
-              >
-                {fullContentLineNumbers}
-              </Box>
-              <Box
-                component="pre"
-                sx={{
-                  m: 0,
-                  flex: 1,
-                  ...codeBlockSx,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
-                  lineHeight: 1.5,
-                }}
-              >
-                {displayContent || ''}
-              </Box>
+            <Box sx={{ p: 2 }}>
+              {fullContentLines.map((lineText, idx) => (
+                <Box
+                  key={idx}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 0,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <Box
+                    component="span"
+                    sx={{
+                      ...codeBlockSx,
+                      ...lineNumberSx,
+                      flexShrink: 0,
+                      py: '2px',
+                    }}
+                  >
+                    {idx + 1}
+                  </Box>
+                  <Box
+                    component="pre"
+                    sx={{
+                      m: 0,
+                      flex: 1,
+                      minWidth: 0,
+                      ...codeBlockSx,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-all',
+                      lineHeight: 1.5,
+                      py: '2px',
+                    }}
+                  >
+                    {lineText === '' ? '\u00A0' : lineText}
+                  </Box>
+                </Box>
+              ))}
             </Box>
           )}
 

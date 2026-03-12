@@ -51,6 +51,7 @@ const DiffRow = ({ line, theme, lineNumWidth }) => {
           borderRight: 1,
           borderColor: 'divider',
           minHeight: 20,
+          minWidth: 0,
         }}
       >
         <Box
@@ -75,9 +76,11 @@ const DiffRow = ({ line, theme, lineNumWidth }) => {
         <Box
           sx={{
             flex: 1,
+            minWidth: 0,
             px: 1,
-            whiteSpace: 'pre',
-            overflowX: 'auto',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
             color: getTextColor(),
             fontFamily: 'monospace',
             fontSize: '0.75rem',
@@ -93,6 +96,7 @@ const DiffRow = ({ line, theme, lineNumWidth }) => {
         sx={{
           display: 'flex',
           minHeight: 20,
+          minWidth: 0,
         }}
       >
         <Box
@@ -117,9 +121,11 @@ const DiffRow = ({ line, theme, lineNumWidth }) => {
         <Box
           sx={{
             flex: 1,
+            minWidth: 0,
             px: 1,
-            whiteSpace: 'pre',
-            overflowX: 'auto',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
             color: getTextColor(),
             fontFamily: 'monospace',
             fontSize: '0.75rem',
