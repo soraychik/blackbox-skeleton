@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   AppBar,
@@ -14,8 +14,7 @@ import {
   Toolbar,
   Typography,
   Avatar,
-  Menu,
-  MenuItem,
+  Paper,
   useTheme,
   useMediaQuery,
 } from '@mui/material';
@@ -48,20 +47,34 @@ const Layout = ({ children, darkMode, setDarkMode }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [anchorEl, setAnchorEl] = useState(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef(null);
+
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const handleClickOutside = (e) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [userMenuOpen]);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
   };
 
-  const handleMenuOpen = (event) => {
-    setAnchorEl(event.currentTarget);
+  const handleMenuToggle = (e) => {
+    e.stopPropagation();
+    setUserMenuOpen((prev) => !prev);
   };
 
   const handleMenuClose = () => {
-    setAnchorEl(null);
+    setUserMenuOpen(false);
   };
 
   const handleNavigation = (path) => {
@@ -150,25 +163,35 @@ const Layout = ({ children, darkMode, setDarkMode }) => {
             <IconButton onClick={handleThemeToggle} sx={{ mr: 1 }}>
               {darkMode ? <LightModeIcon /> : <DarkModeIcon />}
             </IconButton>
-            <IconButton onClick={handleMenuOpen}>
-              <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>U</Avatar>
-            </IconButton>
-            <Menu
-              anchorEl={anchorEl}
-              open={Boolean(anchorEl)}
-              onClose={handleMenuClose}
-              transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-              anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-            >
-              <MenuItem onClick={handleMenuClose}>
-                <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>
-                Профиль
-              </MenuItem>
-              <MenuItem onClick={handleMenuClose}>
-                <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
-                Выйти
-              </MenuItem>
-            </Menu>
+            <Box ref={userMenuRef} sx={{ position: 'relative' }}>
+              <IconButton onClick={handleMenuToggle} aria-haspopup="true" aria-expanded={userMenuOpen}>
+                <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>U</Avatar>
+              </IconButton>
+              {userMenuOpen && (
+                <Paper
+                  elevation={8}
+                  sx={{
+                    position: 'absolute',
+                    right: 0,
+                    top: '100%',
+                    mt: 1,
+                    minWidth: 160,
+                    py: 0.5,
+                    zIndex: (t) => t.zIndex.tooltip + 1,
+                    '& .MuiListItemIcon-root': { minWidth: 36 },
+                  }}
+                >
+                  <ListItemButton onClick={handleMenuClose} dense>
+                    <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>
+                    <ListItemText primary="Профиль" primaryTypographyProps={{ variant: 'body2' }} />
+                  </ListItemButton>
+                  <ListItemButton onClick={handleMenuClose} dense>
+                    <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
+                    <ListItemText primary="Выйти" primaryTypographyProps={{ variant: 'body2' }} />
+                  </ListItemButton>
+                </Paper>
+              )}
+            </Box>
           </Toolbar>
         </AppBar>
         <Box

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { FixedSizeList } from 'react-window';
 import { useTheme } from '@mui/material/styles';
 import {
   Box,
@@ -13,6 +14,9 @@ import {
 } from '@mui/material';
 import { getVersions, getVersionDiff } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
+
+const ROW_HEIGHT = 20;
+const DIFF_LIST_HEIGHT_VH = 55;
 
 const DiffRow = ({ line, theme, lineNumWidth }) => {
   const isDark = theme.palette.mode === 'dark';
@@ -47,6 +51,7 @@ const DiffRow = ({ line, theme, lineNumWidth }) => {
           borderRight: 1,
           borderColor: 'divider',
           minHeight: 20,
+          minWidth: 0,
         }}
       >
         <Box
@@ -71,9 +76,11 @@ const DiffRow = ({ line, theme, lineNumWidth }) => {
         <Box
           sx={{
             flex: 1,
+            minWidth: 0,
             px: 1,
-            whiteSpace: 'pre',
-            overflowX: 'auto',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
             color: getTextColor(),
             fontFamily: 'monospace',
             fontSize: '0.75rem',
@@ -89,6 +96,7 @@ const DiffRow = ({ line, theme, lineNumWidth }) => {
         sx={{
           display: 'flex',
           minHeight: 20,
+          minWidth: 0,
         }}
       >
         <Box
@@ -113,9 +121,11 @@ const DiffRow = ({ line, theme, lineNumWidth }) => {
         <Box
           sx={{
             flex: 1,
+            minWidth: 0,
             px: 1,
-            whiteSpace: 'pre',
-            overflowX: 'auto',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
             color: getTextColor(),
             fontFamily: 'monospace',
             fontSize: '0.75rem',
@@ -160,6 +170,8 @@ const DiffStats = ({ stats, totalLines, theme }) => (
 
 const ChangesTab = ({ embedded = false, initialDiffData = null, deviceName = null, version1Date = null, version2Date = null }) => {
   const theme = useTheme();
+  const listContainerRef = useRef(null);
+  const [listSize, setListSize] = useState({ width: 0, height: 400 });
   const [versions, setVersions] = useState([]);
   const [loading, setLoading] = useState(!embedded);
   const [error, setError] = useState(null);
@@ -168,6 +180,18 @@ const ChangesTab = ({ embedded = false, initialDiffData = null, deviceName = nul
   const [diffData, setDiffData] = useState(initialDiffData);
   const [diffLoading, setDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState(null);
+
+  useEffect(() => {
+    const el = listContainerRef.current;
+    if (!el) return;
+    const updateSize = () => {
+      setListSize({ width: el.clientWidth, height: el.clientHeight });
+    };
+    updateSize();
+    const ro = new ResizeObserver(updateSize);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [diffData]);
 
   const loadVersions = useCallback(async () => {
     try {
@@ -430,10 +454,34 @@ const ChangesTab = ({ embedded = false, initialDiffData = null, deviceName = nul
                 </Box>
               </Box>
 
-              <Box sx={{ fontFamily: 'monospace', fontSize: '0.75rem', lineHeight: '20px' }}>
-                {processedDiff.lines.map((line, idx) => (
-                  <DiffRow key={`line-${idx}`} line={line} theme={theme} lineNumWidth={processedDiff.lineNumWidth} />
-                ))}
+              <Box
+                ref={listContainerRef}
+                sx={{
+                  fontFamily: 'monospace',
+                  fontSize: '0.75rem',
+                  lineHeight: '20px',
+                  height: `max(${ROW_HEIGHT}px, min(${DIFF_LIST_HEIGHT_VH}vh, ${processedDiff.lines.length * ROW_HEIGHT}px))`,
+                }}
+              >
+                {listSize.width > 0 && listSize.height > 0 && (
+                  <FixedSizeList
+                    height={listSize.height}
+                    width={listSize.width}
+                    itemCount={processedDiff.lines.length}
+                    itemSize={ROW_HEIGHT}
+                    overscanCount={10}
+                  >
+                    {({ index, style }) => (
+                      <div style={style}>
+                        <DiffRow
+                          line={processedDiff.lines[index]}
+                          theme={theme}
+                          lineNumWidth={processedDiff.lineNumWidth}
+                        />
+                      </div>
+                    )}
+                  </FixedSizeList>
+                )}
               </Box>
             </>
           )}

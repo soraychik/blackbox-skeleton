@@ -75,14 +75,17 @@ services:
       - SMB_PASSWORD=${SMB_PASSWORD}
       - SMB_DOMAIN=${SMB_DOMAIN}
       
-      # Настройки локального хранилища
-      - LOCAL_FS_ENABLED=${LOCAL_FS_ENABLED}
-      - LOCAL_FS_PATH=${LOCAL_FS_PATH}
+      # Настройки локального хранилища (папка с конфигами; в контейнере маппится ./scheduler/configs -> /app/configs)
+      - LOCAL_FS_ENABLED=${LOCAL_FS_ENABLED:-true}
+      - LOCAL_FS_PATH=${LOCAL_FS_PATH:-/app/configs}
       
       # Настройки производительности
       - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB}
       - RETRY_ATTEMPTS=${RETRY_ATTEMPTS}
       - TIMEOUT_SECONDS=${TIMEOUT_SECONDS}
+      # Интервал между сканированиями (сек); порт для принудительного сканирования
+      - SCAN_INTERVAL_SECONDS=${SCAN_INTERVAL_SECONDS:-30}
+      - SCHEDULER_TRIGGER_PORT=${SCHEDULER_TRIGGER_PORT:-9090}
     depends_on:
       mysql-db:
         condition: service_healthy
@@ -107,6 +110,8 @@ services:
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
       - MINIO_USE_SSL=${MINIO_USE_SSL}
+      # URL планировщика для принудительного сканирования (кнопка на дашборде)
+      - SCHEDULER_TRIGGER_URL=${SCHEDULER_TRIGGER_URL:-http://scheduler:9090}
     depends_on:
       mysql-db:
         condition: service_healthy

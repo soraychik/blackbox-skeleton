@@ -48,6 +48,12 @@ export const getVersions = async () => {
   return response.data.versions || [];
 };
 
+/** Статистика для дашборда: метрики и топ устройств по изменениям (агрегация по всей БД, не только по 100 версиям). */
+export const getDashboardStats = async () => {
+  const response = await api.get('/dashboard/stats');
+  return response.data;
+};
+
 export const getVersionContent = async (versionId) => {
   const response = await api.get(`/versions/${versionId}/content`, {
     responseType: 'text',
@@ -102,6 +108,12 @@ export const exportConfigByDate = async (deviceId, date) => {
 // UC-1: поиск устройств по изменениям (добавились/удалились строки по шаблонам)
 export const searchChanges = async (body) => {
   const response = await api.post('/search/changes', body);
+  return response.data;
+};
+
+// Принудительный запуск сканирования файлов (сбрасывает таймер до следующего автоматического)
+export const triggerScan = async () => {
+  const response = await api.post('/scan');
   return response.data;
 };
 

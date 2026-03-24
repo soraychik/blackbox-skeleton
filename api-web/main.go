@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -48,6 +50,7 @@ func main() {
 	router.GET("/devices", getDevices)
 	router.GET("/devices/:id", getDeviceByID)
 	router.GET("/devices/:id/versions", getDeviceVersions)
+	router.GET("/dashboard/stats", getDashboardStats)
 	router.GET("/versions", getVersions)
 	router.GET("/versions/:id/content", getVersionContent)
 	router.GET("/versions/diff/:id1/:id2", getVersionDiff)
@@ -59,6 +62,8 @@ func main() {
 	router.POST("/search/changes", postSearchChanges)
 	// ТЗ 2.3 UC-5 — поиск по конфигурациям (regexp, сниппеты)
 	router.POST("/search/count", postSearchCount)
+	// Принудительный запуск сканирования (прокси к scheduler)
+	router.POST("/scan", postTriggerScan)
 
 	log.Println("API Web server starting on :8080")
 	router.Run(":8080")
@@ -97,6 +102,31 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// postTriggerScan вызывает принудительное сканирование в scheduler и сбрасывает таймер следующего автоматического сканирования.
+func postTriggerScan(c *gin.Context) {
+	schedulerURL := getEnv("SCHEDULER_TRIGGER_URL", "http://scheduler:9090")
+	url := strings.TrimSuffix(schedulerURL, "/") + "/scan"
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(nil))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
+		return
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Trigger scan request to scheduler failed: %v", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "scheduler unreachable"})
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		c.JSON(resp.StatusCode, gin.H{"error": string(body)})
+		return
+	}
+	c.Data(resp.StatusCode, "application/json", body)
 }
 
 type Device struct {
@@ -292,6 +322,71 @@ func getVersions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"versions": versions})
+}
+
+// getDashboardStats возвращает агрегированную статистику для дашборда (без LIMIT по версиям).
+func getDashboardStats(c *gin.Context) {
+	db, err := NewDB()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
+		return
+	}
+	defer db.Close()
+
+	var totalDevices int
+	if err := db.QueryRow("SELECT COUNT(*) FROM devices").Scan(&totalDevices); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count devices"})
+		return
+	}
+
+	var updatedToday int
+	if err := db.QueryRow("SELECT COUNT(*) FROM config_versions WHERE DATE(created_at) = CURDATE()").Scan(&updatedToday); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count versions updated today"})
+		return
+	}
+
+	var devicesWithChanges int
+	if err := db.QueryRow("SELECT COUNT(DISTINCT device_id) FROM config_versions").Scan(&devicesWithChanges); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count devices with changes"})
+		return
+	}
+
+	rows, err := db.Query(`
+		SELECT d.id, d.hostname, COUNT(cv.id) AS change_count, MAX(cv.created_at) AS last_change
+		FROM devices d
+		JOIN config_versions cv ON cv.device_id = d.id
+		GROUP BY d.id, d.hostname
+		ORDER BY change_count DESC
+		LIMIT 5
+	`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query top devices"})
+		return
+	}
+	defer rows.Close()
+
+	type TopDevice struct {
+		DeviceID    int       `json:"device_id"`
+		Hostname    string    `json:"hostname"`
+		ChangeCount int       `json:"change_count"`
+		LastChange  time.Time `json:"last_change"`
+	}
+	var topDevices []TopDevice
+	for rows.Next() {
+		var t TopDevice
+		if err := rows.Scan(&t.DeviceID, &t.Hostname, &t.ChangeCount, &t.LastChange); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan top device"})
+			return
+		}
+		topDevices = append(topDevices, t)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"total_devices":        totalDevices,
+		"updated_today":        updatedToday,
+		"devices_with_changes": devicesWithChanges,
+		"top_devices":          topDevices,
+	})
 }
 
 func getDeviceVersions(c *gin.Context) {
@@ -1327,13 +1422,15 @@ func findSnippetLines(lines []string, matches [][]int, contextLines int) []Snipp
 	return snippetLines
 }
 
+// compilePatterns компилирует шаблоны как буквальный текст (скобки, точки и т.д. не являются regex-метасимволами).
 func compilePatterns(patterns []string) ([]*regexp.Regexp, error) {
 	var out []*regexp.Regexp
 	for _, p := range patterns {
 		if p == "" {
 			continue
 		}
-		re, err := regexp.Compile(p)
+		literal := regexp.QuoteMeta(p)
+		re, err := regexp.Compile(literal)
 		if err != nil {
 			return nil, err
 		}
