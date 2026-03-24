@@ -44,7 +44,7 @@ const DeviceDiff = () => {
       setError(null);
       const data = await getDevices();
       setDevices(data);
-    } catch (error) {
+    } catch {
       setError('Не удалось загрузить список устройств');
     } finally {
       setLoading(false);

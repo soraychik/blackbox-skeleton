@@ -48,40 +48,6 @@ const ConfigViewDialog = ({
   const isFullFileMode = displayContent !== null;
   const showViewFullButton = snippets !== null && !isFullFileMode && onViewFullFile != null;
 
-  // Стили в зависимости от темы: светлая — белый фон и чёрный текст, тёмная — как в приложении
-  const codeBlockSx = useMemo(
-    () => ({
-      fontFamily: 'monospace',
-      fontSize: '0.875rem',
-      ...(isDark
-        ? { bgcolor: 'background.default', color: 'text.primary' }
-        : { bgcolor: '#fff', color: '#000' }),
-    }),
-    [isDark]
-  );
-
-  // Нумерация по правому краю, фиксированная ширина — строки текста начинаются друг под другом
-  const lineNumberSx = useMemo(
-    () => ({
-      width: 56,
-      minWidth: 56,
-      color: 'text.disabled',
-      userSelect: 'none',
-      fontFamily: 'monospace',
-      fontSize: '0.875rem',
-      flexShrink: 0,
-      textAlign: 'right',
-      pr: 2,
-    }),
-    []
-  );
-
-  // Разбиваем контент по строкам для построчного рендера: у каждой логической строки один номер слева
-  const fullContentLines = useMemo(() => {
-    if (!displayContent) return [];
-    return (displayContent || '').split('\n');
-  }, [displayContent]);
-
   useEffect(() => {
     if (!open) {
       setFullContent(null);
@@ -100,6 +66,37 @@ const ConfigViewDialog = ({
     }
   };
 
+  const codeBlockSx = useMemo(
+    () => ({
+      fontFamily: 'monospace',
+      fontSize: '0.875rem',
+      ...(isDark
+        ? { bgcolor: 'background.default', color: 'text.primary' }
+        : { bgcolor: '#fff', color: '#000' }),
+    }),
+    [isDark]
+  );
+
+  const lineNumberSx = useMemo(
+    () => ({
+      width: 56,
+      minWidth: 56,
+      color: 'text.disabled',
+      userSelect: 'none',
+      fontFamily: 'monospace',
+      fontSize: '0.875rem',
+      flexShrink: 0,
+      textAlign: 'right',
+      pr: 2,
+    }),
+    []
+  );
+
+  const fullContentLines = useMemo(() => {
+    if (!displayContent) return [];
+    return (displayContent || '').split('\n');
+  }, [displayContent]);
+
   return (
     <Dialog
       open={open}
@@ -114,7 +111,6 @@ const ConfigViewDialog = ({
       }}
     >
       <DialogContent sx={{ p: 0 }}>
-        {/* Шапка — в тёмной теме в тон приложению */}
         <Box
           sx={{
             display: 'flex',
@@ -166,7 +162,6 @@ const ConfigViewDialog = ({
           </Box>
         </Box>
 
-        {/* Тело: светлая тема — белый фон и чёрный текст, тёмная — как в приложении */}
         <Box
           sx={{
             maxHeight: '70vh',
@@ -174,7 +169,6 @@ const ConfigViewDialog = ({
             ...codeBlockSx,
           }}
         >
-          {/* Режим полного текста: каждая логическая строка — один номер слева и контент справа (перенос не дублирует номер) */}
           {isFullFileMode && (
             <Box sx={{ p: 2 }}>
               {fullContentLines.map((lineText, idx) => (
@@ -185,6 +179,8 @@ const ConfigViewDialog = ({
                     alignItems: 'flex-start',
                     gap: 0,
                     lineHeight: 1.5,
+                    contentVisibility: 'auto',
+                    containIntrinsicSize: '0 21px',
                   }}
                 >
                   <Box
@@ -218,7 +214,6 @@ const ConfigViewDialog = ({
             </Box>
           )}
 
-          {/* Режим сниппетов — тот же стиль + синяя подсветка совпадений */}
           {snippets !== null && !isFullFileMode && (
             <Box sx={{ p: 2 }}>
               {snippets.length === 0 ? (
@@ -231,11 +226,10 @@ const ConfigViewDialog = ({
                       display: 'flex',
                       gap: 2,
                       mb: 0.5,
-                      // Светлая тема: вся строка серая, текст синий. Тёмная: та же гамма — серая строка + синий текст
                       bgcolor: snippet.match
                         ? isDark
-                          ? '#475569'   // серый фон строки (на тёмном фоне)
-                          : '#e5e7eb'   // серый фон строки (светлая тема)
+                          ? '#475569'
+                          : '#e5e7eb'
                         : 'transparent',
                       borderRadius: 0.5,
                       px: 1,

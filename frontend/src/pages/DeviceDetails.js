@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -45,7 +45,6 @@ const DeviceDetails = () => {
   const [versions, setVersions] = useState([]);
   const [device, setDevice] = useState(null);
   const [selectedVersions, setSelectedVersions] = useState({ left: null, right: null });
-  const [compareLoading, setCompareLoading] = useState(false);
   const [viewDialog, setViewDialog] = useState({ open: false, content: '', versionId: null });
   const [compareDialog, setCompareDialog] = useState({ open: false, diffData: null, loading: false });
   const [compareByDate, setCompareByDate] = useState({ date1: '', date2: '' });
@@ -55,11 +54,7 @@ const DeviceDetails = () => {
   const [compareByDateError, setCompareByDateError] = useState('');
   const [exportError, setExportError] = useState('');
 
-  useEffect(() => {
-    loadData();
-  }, [id]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const data = await getDeviceVersions(id);
@@ -70,7 +65,11 @@ const DeviceDetails = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleViewVersion = async (versionId) => {
     try {

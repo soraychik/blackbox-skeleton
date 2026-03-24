@@ -138,7 +138,6 @@ func getEnvInt(key string, defaultValue int) int {
 	return defaultValue
 }
 
-// waitForMySQL ждёт пока MySQL станет доступен
 func getEnvFloat(key string, defaultValue float64) float64 {
 	if value := os.Getenv(key); value != "" {
 		if parsed, err := strconv.ParseFloat(value, 64); err == nil {
@@ -148,6 +147,7 @@ func getEnvFloat(key string, defaultValue float64) float64 {
 	return defaultValue
 }
 
+// waitForMySQL ждёт пока MySQL станет доступен
 func waitForMySQL() error {
 	log.Println("Ожидание готовности MySQL...")
 

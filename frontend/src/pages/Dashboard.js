@@ -95,7 +95,7 @@ const Dashboard = () => {
           lastChange: t.last_change,
         }))
       );
-    } catch (error) {
+    } catch {
       setError('Не удалось загрузить данные дашборда');
     } finally {
       setLoading(false);

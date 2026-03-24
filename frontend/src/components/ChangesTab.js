@@ -141,7 +141,7 @@ const DiffRow = ({ line, theme, lineNumWidth }) => {
   );
 };
 
-const DiffStats = ({ stats, totalLines, theme }) => (
+const DiffStats = ({ stats, totalLines }) => (
   <Box
     sx={{
       display: 'flex',
@@ -435,7 +435,7 @@ const ChangesTab = ({ embedded = false, initialDiffData = null, deviceName = nul
             </Box>
           ) : (
             <>
-              <DiffStats stats={processedDiff.stats} totalLines={processedDiff.totalLines} theme={theme} />
+              <DiffStats stats={processedDiff.stats} totalLines={processedDiff.totalLines} />
 
               <Box
                 sx={{
