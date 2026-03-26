@@ -69,6 +69,13 @@ export const getDeviceVersions = async (deviceId) => {
   return response.data;
 };
 
+export const getLatestVersionsForDevices = async (leftDeviceId, rightDeviceId) => {
+  const response = await api.get(
+    `/devices/compare/latest?leftDeviceId=${leftDeviceId}&rightDeviceId=${rightDeviceId}`
+  );
+  return response.data;
+};
+
 export const getDevicesDiff = async (deviceId1, deviceId2, date) => {
   const response = await api.post('/diff/devices', {
     device_id_1: deviceId1,

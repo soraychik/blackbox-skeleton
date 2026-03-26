@@ -80,6 +80,21 @@ const DeviceDetails = () => {
     }
   };
 
+  const buildVersionFilename = (versionId) => {
+    const version = versions.find((v) => Number(v.id) === Number(versionId));
+    const safeHostname = String(device?.hostname || id).replace(/[\\/:*?"<>|]/g, '_');
+    let datePart = 'unknown-date';
+
+    if (version?.created_at) {
+      const date = new Date(version.created_at);
+      if (!Number.isNaN(date.getTime())) {
+        datePart = date.toISOString().slice(0, 10);
+      }
+    }
+
+    return `config_${safeHostname}_${datePart}.txt`;
+  };
+
   const handleDownloadVersion = async (versionId) => {
     try {
       const content = await getVersionContent(versionId);
@@ -87,7 +102,7 @@ const DeviceDetails = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `config_v${versionId}.txt`;
+      a.download = buildVersionFilename(versionId);
       a.click();
       URL.revokeObjectURL(url);
     } catch (error) {

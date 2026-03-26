@@ -18,7 +18,7 @@ import {
   Compare as CompareIcon,
   Close as CloseIcon,
 } from '@mui/icons-material';
-import { getDevices, getDeviceVersions, getVersionDiff } from '../utils/api';
+import { getDevices, getLatestVersionsForDevices, getVersionDiff } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
 import ChangesTab from '../components/ChangesTab';
 
@@ -57,26 +57,23 @@ const DeviceDiff = () => {
     try {
       setCompareLoading(true);
       setError(null);
-      // API сравнения принимает id версий, а не устройств — берём последнюю версию каждого устройства
-      const [data1, data2] = await Promise.all([
-        getDeviceVersions(leftDevice.id),
-        getDeviceVersions(rightDevice.id),
-      ]);
-      const versions1 = data1?.versions || [];
-      const versions2 = data2?.versions || [];
-      if (versions1.length === 0) {
+      const latest = await getLatestVersionsForDevices(leftDevice.id, rightDevice.id);
+      const leftLatestVersion = latest?.left?.version || null;
+      const rightLatestVersion = latest?.right?.version || null;
+
+      if (!leftLatestVersion) {
         setError(`У устройства «${leftDevice.hostname}» нет сохранённых версий конфигурации`);
         return;
       }
-      if (versions2.length === 0) {
+      if (!rightLatestVersion) {
         setError(`У устройства «${rightDevice.hostname}» нет сохранённых версий конфигурации`);
         return;
       }
-      const leftVersionId = versions1[0].id;
-      const rightVersionId = versions2[0].id;
+      const leftVersionId = leftLatestVersion.id;
+      const rightVersionId = rightLatestVersion.id;
       const diff = await getVersionDiff(leftVersionId, rightVersionId);
-      setVersions1(versions1);
-      setVersions2(versions2);
+      setVersions1([leftLatestVersion]);
+      setVersions2([rightLatestVersion]);
       setDiffData(diff);
       setDialogOpen(true);
     } catch (error) {
