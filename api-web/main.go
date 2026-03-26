@@ -64,6 +64,7 @@ func main() {
 	router.POST("/search/count", postSearchCount)
 	// Принудительный запуск сканирования (прокси к scheduler)
 	router.POST("/scan", postTriggerScan)
+	router.GET("/scan/status", getScanStatus)
 
 	log.Println("api web server starting on :8080")
 	router.Run(":8080")
@@ -127,6 +128,28 @@ func postTriggerScan(c *gin.Context) {
 		return
 	}
 	c.Data(resp.StatusCode, "application/json", body)
+}
+
+// getScanStatus возвращает статус текущего сканирования из scheduler.
+func getScanStatus(c *gin.Context) {
+	schedulerURL := getEnv("SCHEDULER_TRIGGER_URL", "http://scheduler:9090")
+	url := strings.TrimSuffix(schedulerURL, "/") + "/status"
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Printf("scan status request to scheduler failed: %v", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "scheduler unreachable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		c.JSON(resp.StatusCode, gin.H{"error": string(body)})
+		return
+	}
+	c.Data(http.StatusOK, "application/json", body)
 }
 
 type Device struct {

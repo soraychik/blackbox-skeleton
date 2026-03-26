@@ -9,8 +9,42 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
+
+var (
+	scanStatusMu       sync.RWMutex
+	scanInProgress     bool
+	scanLastStartedAt  time.Time
+	scanLastFinishedAt time.Time
+)
+
+func setScanStarted() {
+	scanStatusMu.Lock()
+	defer scanStatusMu.Unlock()
+	scanInProgress = true
+	scanLastStartedAt = time.Now()
+}
+
+func setScanFinished() {
+	scanStatusMu.Lock()
+	defer scanStatusMu.Unlock()
+	scanInProgress = false
+	scanLastFinishedAt = time.Now()
+}
+
+func getScanStatus() (bool, time.Time, time.Time) {
+	scanStatusMu.RLock()
+	defer scanStatusMu.RUnlock()
+	return scanInProgress, scanLastStartedAt, scanLastFinishedAt
+}
+
+func runScan(serverManager *fileserver.FileServerManager) {
+	setScanStarted()
+	serverManager.ProcessAllServers()
+	setScanFinished()
+}
 
 func main() {
 	log.Println("launching blackbox scheduler with support for multiple file servers...")
@@ -71,7 +105,7 @@ func main() {
 
 	// Сразу обрабатываем все файлы при запуске; следующее сканирование — через scanInterval после завершения
 	log.Println("performing an initial file scan...")
-	serverManager.ProcessAllServers()
+	runScan(serverManager)
 	log.Println("initial scan complete, waiting for next scan...")
 
 	// Таймер следующего сканирования (сбрасывается после каждого полного сканирования и после принудительного)
@@ -87,12 +121,12 @@ func main() {
 		select {
 		case <-nextScanTimer.C:
 			log.Println("checking for new configuration files...")
-			serverManager.ProcessAllServers()
+			runScan(serverManager)
 			log.Println("file processing cycle completed, waiting until next scan...")
 			nextScanTimer.Reset(scanInterval)
 		case <-triggerScan:
 			log.Println("forced scanning on demand")
-			serverManager.ProcessAllServers()
+			runScan(serverManager)
 			log.Println("forced scan complete, waiting until next automatic scan...")
 			nextScanTimer.Reset(scanInterval)
 		case <-healthTicker.C:
@@ -116,6 +150,24 @@ func runTriggerServer(addr string, triggerChan chan<- struct{}) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"status":"ok","message":"scan already queued"}`))
 		}
+	})
+	http.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		inProgress, lastStartedAt, lastFinishedAt := getScanStatus()
+		lastStarted := ""
+		if !lastStartedAt.IsZero() {
+			lastStarted = lastStartedAt.UTC().Format(time.RFC3339)
+		}
+		lastFinished := ""
+		if !lastFinishedAt.IsZero() {
+			lastFinished = lastFinishedAt.UTC().Format(time.RFC3339)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(fmt.Sprintf(`{"in_progress":%t,"last_started_at":"%s","last_finished_at":"%s"}`, inProgress, lastStarted, lastFinished)))
 	})
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Printf("forced scan server error: %v", err)

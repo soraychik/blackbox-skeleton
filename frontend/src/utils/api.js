@@ -103,4 +103,9 @@ export const triggerScan = async () => {
   return response.data;
 };
 
+export const getScanStatus = async () => {
+  const response = await api.get('/scan/status');
+  return response.data;
+};
+
 export default api;
