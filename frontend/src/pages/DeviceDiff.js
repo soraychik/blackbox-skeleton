@@ -167,7 +167,7 @@ const DeviceDiff = () => {
         <DialogContent sx={{ p: 0 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>
             <Typography variant="h6">
-              {leftDevice?.hostname} vs {rightDevice?.hostname}
+              {leftDevice?.hostname} и {rightDevice?.hostname}
             </Typography>
             <IconButton onClick={closeDialog}>
               <CloseIcon />
@@ -178,9 +178,11 @@ const DeviceDiff = () => {
               <ChangesTab 
                 embedded 
                 initialDiffData={diffData}
-                deviceName={`${leftDevice?.hostname} vs ${rightDevice?.hostname}`}
+                deviceName={`${leftDevice?.hostname} и ${rightDevice?.hostname}`}
                 version1Date={versions1?.[0]?.created_at ? formatDateTime(versions1[0].created_at) : null}
                 version2Date={versions2?.[0]?.created_at ? formatDateTime(versions2[0].created_at) : null}
+                leftTitle={leftDevice?.hostname && versions1?.[0]?.created_at ? `${leftDevice.hostname} (${formatDateTime(versions1[0].created_at)})` : null}
+                rightTitle={rightDevice?.hostname && versions2?.[0]?.created_at ? `${rightDevice.hostname} (${formatDateTime(versions2[0].created_at)})` : null}
               />
             ) : (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>

@@ -49,7 +49,7 @@ func NewMinIOImprovedClient() (*MinIOImprovedClient, error) {
 		Secure: useSSL,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create MinIO client: %w", err)
+		return nil, fmt.Errorf("Failed to create MinIO client: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -57,7 +57,7 @@ func NewMinIOImprovedClient() (*MinIOImprovedClient, error) {
 
 	exists, err := client.BucketExists(ctx, bucketName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check bucket existence: %w", err)
+		return nil, fmt.Errorf("Failed to check bucket existence: %w", err)
 	}
 
 	if !exists {
@@ -65,7 +65,7 @@ func NewMinIOImprovedClient() (*MinIOImprovedClient, error) {
 			Region: "us-east-1",
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to create bucket: %w", err)
+			return nil, fmt.Errorf("Failed to create bucket: %w", err)
 		}
 		log.Printf("Created bucket %s", bucketName)
 	}
@@ -93,11 +93,11 @@ func (m *MinIOImprovedClient) UploadCompressed(ctx context.Context, objectName s
 	gz := gzip.NewWriter(&compressed)
 
 	if _, err := gz.Write(content); err != nil {
-		return 0, 0, fmt.Errorf("failed to compress content: %w", err)
+		return 0, 0, fmt.Errorf("Failed to compress content: %w", err)
 	}
 
 	if err := gz.Close(); err != nil {
-		return 0, 0, fmt.Errorf("failed to close gzip writer: %w", err)
+		return 0, 0, fmt.Errorf("Failed to close gzip writer: %w", err)
 	}
 
 	originalSize := int64(len(content))
@@ -109,7 +109,7 @@ func (m *MinIOImprovedClient) UploadCompressed(ctx context.Context, objectName s
 	})
 
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to upload compressed object %s: %w", objectName, err)
+		return 0, 0, fmt.Errorf("Failed to upload compressed object %s: %w", objectName, err)
 	}
 
 	log.Printf("Successfully uploaded compressed object %s: %d -> %d bytes (%.1f%% reduction)",
@@ -121,19 +121,19 @@ func (m *MinIOImprovedClient) UploadCompressed(ctx context.Context, objectName s
 func (m *MinIOImprovedClient) DownloadDecompressed(ctx context.Context, objectName string) ([]byte, error) {
 	object, err := m.Client.GetObject(ctx, m.Bucket, objectName, minio.GetObjectOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get object %s: %w", objectName, err)
+		return nil, fmt.Errorf("Failed to get object %s: %w", objectName, err)
 	}
 	defer object.Close()
 
 	gz, err := gzip.NewReader(object)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create gzip reader for %s: %w", objectName, err)
+		return nil, fmt.Errorf("Failed to create gzip reader for %s: %w", objectName, err)
 	}
 	defer gz.Close()
 
 	content, err := io.ReadAll(gz)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read decompressed content for %s: %w", objectName, err)
+		return nil, fmt.Errorf("Failed to read decompressed content for %s: %w", objectName, err)
 	}
 
 	return content, nil
@@ -149,7 +149,7 @@ func (m *MinIOImprovedClient) UploadFullConfig(ctx context.Context, deviceID int
 
 	originalSize, compressedSize, err := m.UploadCompressed(ctx, objectName, content, "text/plain")
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("failed to upload full config: %w", err)
+		return "", 0, 0, fmt.Errorf("Failed to upload full config: %w", err)
 	}
 
 	return objectName, originalSize, compressedSize, nil
@@ -162,7 +162,7 @@ func (m *MinIOImprovedClient) UploadDiff(ctx context.Context, deviceID int, diff
 
 	originalSize, compressedSize, err := m.UploadCompressed(ctx, objectName, diffContent, "text/plain")
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("failed to upload diff: %w", err)
+		return "", 0, 0, fmt.Errorf("Failed to upload diff: %w", err)
 	}
 
 	return objectName, originalSize, compressedSize, nil
@@ -180,7 +180,7 @@ func (m *MinIOImprovedClient) ListDeviceObjects(ctx context.Context, deviceID in
 		Prefix: prefix,
 	}) {
 		if object.Err != nil {
-			return nil, fmt.Errorf("failed to list objects: %w", object.Err)
+			return nil, fmt.Errorf("Failed to list objects: %w", object.Err)
 		}
 		objects = append(objects, object.Key)
 	}
@@ -191,7 +191,7 @@ func (m *MinIOImprovedClient) ListDeviceObjects(ctx context.Context, deviceID in
 func (m *MinIOImprovedClient) DeleteObject(ctx context.Context, objectName string) error {
 	err := m.Client.RemoveObject(ctx, m.Bucket, objectName, minio.RemoveObjectOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to delete object %s: %w", objectName, err)
+		return fmt.Errorf("Failed to delete object %s: %w", objectName, err)
 	}
 
 	log.Printf("Successfully deleted object %s", objectName)
@@ -205,7 +205,7 @@ func (m *MinIOImprovedClient) GetObjectInfo(ctx context.Context, objectName stri
 func (m *MinIOImprovedClient) GeneratePresignedURL(ctx context.Context, objectName string, expiry time.Duration) (string, error) {
 	url, err := m.Client.PresignedGetObject(ctx, m.Bucket, objectName, expiry, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate presigned URL for %s: %w", objectName, err)
+		return "", fmt.Errorf("Failed to generate presigned URL for %s: %w", objectName, err)
 	}
 
 	return url.String(), nil
@@ -251,7 +251,7 @@ func (m *MinIOImprovedClient) ListObjects(prefix string) ([]string, error) {
 		Prefix: prefix,
 	}) {
 		if object.Err != nil {
-			return nil, fmt.Errorf("failed to list objects: %w", object.Err)
+			return nil, fmt.Errorf("Failed to list objects: %w", object.Err)
 		}
 		objects = append(objects, object.Key)
 	}

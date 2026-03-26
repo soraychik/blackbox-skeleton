@@ -168,7 +168,15 @@ const DiffStats = ({ stats, totalLines }) => (
   </Box>
 );
 
-const ChangesTab = ({ embedded = false, initialDiffData = null, deviceName = null, version1Date = null, version2Date = null }) => {
+const ChangesTab = ({
+  embedded = false,
+  initialDiffData = null,
+  deviceName = null,
+  version1Date = null,
+  version2Date = null,
+  leftTitle = null,
+  rightTitle = null,
+}) => {
   const theme = useTheme();
   const listContainerRef = useRef(null);
   const [listSize, setListSize] = useState({ width: 0, height: 400 });
@@ -446,11 +454,33 @@ const ChangesTab = ({ embedded = false, initialDiffData = null, deviceName = nul
                   borderColor: 'divider',
                 }}
               >
-                <Box sx={{ p: 1, fontSize: '0.875rem', fontWeight: 600, color: 'text.secondary' }}>
-                  {version1Info ? `${version1Info.device_hostname} (${formatDateTime(version1Info.created_at)})` : (deviceName && version1Date ? `${deviceName} (${version1Date})` : `Версия ${diffData.left_version_id}`)}
+                <Box sx={{ display: 'flex', minWidth: 0 }}>
+                  <Box
+                    sx={{
+                      width: processedDiff.lineNumWidth,
+                      minWidth: processedDiff.lineNumWidth,
+                      borderRight: 1,
+                      borderColor: 'divider',
+                      bgcolor: 'rgba(0,0,0,0.02)',
+                    }}
+                  />
+                  <Box sx={{ p: 1, fontSize: '0.875rem', fontWeight: 600, color: 'text.secondary', minWidth: 0 }}>
+                    {leftTitle || (version1Info ? `${version1Info.device_hostname} (${formatDateTime(version1Info.created_at)})` : (deviceName && version1Date ? `${deviceName} (${version1Date})` : `Версия ${diffData.left_version_id}`))}
+                  </Box>
                 </Box>
-                <Box sx={{ p: 1, fontSize: '0.875rem', fontWeight: 600, color: 'text.secondary', borderLeft: { md: 1 }, borderColor: 'divider' }}>
-                  {version2Info ? `${version2Info.device_hostname} (${formatDateTime(version2Info.created_at)})` : (deviceName && version2Date ? `${deviceName} (${version2Date})` : `Версия ${diffData.right_version_id}`)}
+                <Box sx={{ display: 'flex', minWidth: 0, borderLeft: { md: 1 }, borderColor: 'divider' }}>
+                  <Box
+                    sx={{
+                      width: processedDiff.lineNumWidth,
+                      minWidth: processedDiff.lineNumWidth,
+                      borderRight: 1,
+                      borderColor: 'divider',
+                      bgcolor: 'rgba(0,0,0,0.02)',
+                    }}
+                  />
+                  <Box sx={{ p: 1, fontSize: '0.875rem', fontWeight: 600, color: 'text.secondary', minWidth: 0 }}>
+                    {rightTitle || (version2Info ? `${version2Info.device_hostname} (${formatDateTime(version2Info.created_at)})` : (deviceName && version2Date ? `${deviceName} (${version2Date})` : `Версия ${diffData.right_version_id}`))}
+                  </Box>
                 </Box>
               </Box>
 

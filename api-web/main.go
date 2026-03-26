@@ -110,14 +110,14 @@ func postTriggerScan(c *gin.Context) {
 	url := strings.TrimSuffix(schedulerURL, "/") + "/scan"
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(nil))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create request"})
 		return
 	}
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("Trigger scan request to scheduler failed: %v", err)
-		c.JSON(http.StatusBadGateway, gin.H{"error": "scheduler unreachable"})
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Scheduler unreachable"})
 		return
 	}
 	defer resp.Body.Close()
@@ -567,17 +567,17 @@ func reconstructVersionContent(ctx context.Context, db *sql.DB, minioClient *sto
 	if version.StorageType == "diff" && version.ParentVersionID != nil {
 		parentVersion, err := getVersionByID(db, *version.ParentVersionID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get parent version: %w", err)
+			return nil, fmt.Errorf("Failed to get parent version: %w", err)
 		}
 
 		baseContent, err := getCachedVersionContent(ctx, db, minioClient, parentVersion)
 		if err != nil {
-			return nil, fmt.Errorf("failed to reconstruct parent: %w", err)
+			return nil, fmt.Errorf("Failed to reconstruct parent: %w", err)
 		}
 
 		patchData, err := minioClient.DownloadConfig(ctx, version.StoragePath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to download patch: %w", err)
+			return nil, fmt.Errorf("Failed to download patch: %w", err)
 		}
 
 		diffEngine := storage.NewDiffEngine()
@@ -586,7 +586,7 @@ func reconstructVersionContent(ctx context.Context, db *sql.DB, minioClient *sto
 		return diffEngine.ApplyDiff(baseContent, patchContent)
 	}
 
-	return nil, fmt.Errorf("unknown storage type: %s", version.StorageType)
+	return nil, fmt.Errorf("Unknown storage type: %s", version.StorageType)
 }
 
 func getVersionByID(db *sql.DB, id int) (*ConfigVersion, error) {
@@ -833,7 +833,7 @@ func getDiffByDate(c *gin.Context) {
 		deviceIDStr = c.Query("device_id")
 	}
 	if deviceIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "deviceId is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "DeviceId is required"})
 		return
 	}
 	deviceID, err := strconv.Atoi(deviceIDStr)
@@ -923,14 +923,14 @@ func getDiffByDate(c *gin.Context) {
 func resolveDeviceVersionsByDate(ctx context.Context, deviceID int, date1, date2 string) (verID1, verID2 int, err error) {
 	db, err := NewDB()
 	if err != nil {
-		return 0, 0, fmt.Errorf("database connection failed")
+		return 0, 0, fmt.Errorf("Database connection failed")
 	}
 	defer db.Close()
 
 	// Версия «на дату» — последняя версия с created_at в эту дату (по ТЗ — «конфиг за выбранную дату»)
 	for _, d := range []string{date1, date2} {
 		if len(d) != 10 || d[4] != '-' || d[7] != '-' {
-			return 0, 0, fmt.Errorf("invalid date format, use YYYY-MM-DD")
+			return 0, 0, fmt.Errorf("Invalid date format, use YYYY-MM-DD")
 		}
 	}
 
@@ -941,20 +941,20 @@ func resolveDeviceVersionsByDate(ctx context.Context, deviceID int, date1, date2
 		deviceID, date1, deviceID, date2,
 	).Scan(&v1ID, &v2ID)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to resolve versions by date: %v", err)
+		return 0, 0, fmt.Errorf("Failed to resolve versions by date: %v", err)
 	}
 	lastDate, _ := getLastVersionDate(db, deviceID)
 	if !v1ID.Valid {
 		if lastDate != "" {
-			return 0, 0, fmt.Errorf("no version for date %s; last config registered: %s", date1, lastDate)
+			return 0, 0, fmt.Errorf("No version for date %s; last config registered: %s", date1, lastDate)
 		}
-		return 0, 0, fmt.Errorf("no version for date %s", date1)
+		return 0, 0, fmt.Errorf("No version for date %s", date1)
 	}
 	if !v2ID.Valid {
 		if lastDate != "" {
-			return 0, 0, fmt.Errorf("no version for date %s; last config registered: %s", date2, lastDate)
+			return 0, 0, fmt.Errorf("No version for date %s; last config registered: %s", date2, lastDate)
 		}
-		return 0, 0, fmt.Errorf("no version for date %s", date2)
+		return 0, 0, fmt.Errorf("No version for date %s", date2)
 	}
 	return int(v1ID.Int64), int(v2ID.Int64), nil
 }
@@ -979,11 +979,11 @@ func getExportConfig(c *gin.Context) {
 	}
 	dateStr := c.Query("date")
 	if deviceIDStr == "" || dateStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "deviceId and date (YYYY-MM-DD) are required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "DeviceId and date (YYYY-MM-DD) are required"})
 		return
 	}
 	if len(dateStr) != 10 || dateStr[4] != '-' || dateStr[7] != '-' {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "date must be YYYY-MM-DD"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Date must be YYYY-MM-DD"})
 		return
 	}
 	deviceID, err := strconv.Atoi(deviceIDStr)
@@ -1219,7 +1219,7 @@ func postSearchCount(c *gin.Context) {
 		return
 	}
 	if req.Pattern == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "pattern is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Pattern is required"})
 		return
 	}
 

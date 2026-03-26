@@ -25,13 +25,13 @@ func (fp *FileProcessor) ProcessFile(filePath string) (*models.FileInfo, error) 
 	// Читаем информацию о файле
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get file info: %v", err)
+		return nil, fmt.Errorf("Failed to get file info: %v", err)
 	}
 
 	// Читаем содержимое файла
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %v", err)
+		return nil, fmt.Errorf("Failed to read file: %v", err)
 	}
 
 	// Вычисляем хэш содержимого
@@ -70,12 +70,12 @@ func (fp *FileProcessor) SaveToArchive(fileInfo *models.FileInfo, deviceID int) 
 
 	// Создаём все необходимые директории
 	if err := os.MkdirAll(filepath.Dir(archivePath), 0755); err != nil {
-		return "", fmt.Errorf("failed to create archive directories: %v", err)
+		return "", fmt.Errorf("Failed to create archive directories: %v", err)
 	}
 
 	// Сохраняем файл в архив
 	if err := os.WriteFile(archivePath, fileInfo.Content, 0644); err != nil {
-		return "", fmt.Errorf("failed to write archive file: %v", err)
+		return "", fmt.Errorf("Failed to write archive file: %v", err)
 	}
 
 	log.Printf("File archived: %s -> %s", fileInfo.Name, archivePath)
@@ -88,7 +88,7 @@ func (fp *FileProcessor) GetFilesInDirectory(dirPath string) ([]string, error) {
 
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read directory: %v", err)
+		return nil, fmt.Errorf("Failed to read directory: %v", err)
 	}
 
 	for _, entry := range entries {
