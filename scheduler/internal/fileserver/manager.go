@@ -63,21 +63,21 @@ func (fsm *FileServerManager) LoadServers() error {
 
 		instance, err := fsm.createServerInstance(id, config)
 		if err != nil {
-			log.Printf("Failed to create server instance %s: %v", id, err)
+			log.Printf("failed to create server instance %s: %v", id, err)
 			continue
 		}
 
 		fsm.servers[id] = instance
 		if config.Type == "local" {
-			log.Printf("File server added: %s (local folder: %s)", id, config.LocalPath)
+			log.Printf("file server added: %s (local folder: %s)", id, config.LocalPath)
 		} else {
-			log.Printf("File server added: %s (%s://%s)", id, config.Type, config.Server)
+			log.Printf("file server added: %s (%s://%s)", id, config.Type, config.Server)
 		}
 	}
 
 	if len(fsm.servers) == 0 {
-		log.Printf("WARNING: No file sources are configured. Scanning will not occur. " +
-			"Enable local folder: LOCAL_FS_ENABLED=true and specify LOCAL_FS_PATH (e.g. /app/configs), " +
+		log.Printf("warning: no file sources are configured. scanning will not occur. " +
+			"enable local folder: LOCAL_FS_ENABLED=true and specify LOCAL_FS_PATH (e.g. /app/configs), " +
 			"or set up a remote server: FILE_SERVER_ENABLED=true.")
 	}
 
@@ -104,7 +104,7 @@ func (fsm *FileServerManager) createServerInstance(id string, config *FileServer
 	// В будущем можно расширить для принятия конфигурации
 	fs, err = remotefs.NewRemoteFileSystem()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to create remote file system: %w", err)
+		return nil, fmt.Errorf("failed to create remote file system: %w", err)
 	}
 
 	return &FileServerInstance{
@@ -134,12 +134,12 @@ func (fsm *FileServerManager) MountAllServers() error {
 			instance.isHealthy = false
 		} else {
 			instance.isHealthy = true
-			log.Printf("The server has been mounted successfully %s", id)
+			log.Printf("mounted server %s", id)
 		}
 	}
 
 	if len(errors) > 0 {
-		return fmt.Errorf("Mounting errors: %v", errors)
+		return fmt.Errorf("mounting errors: %v", errors)
 	}
 
 	return nil
@@ -158,7 +158,7 @@ func (fsm *FileServerManager) ProcessAllServers() {
 
 	for id, instance := range servers {
 		if !instance.isHealthy {
-			log.Printf("Skip unhealthy server: %s", id)
+			log.Printf("skip unhealthy server: %s", id)
 			continue
 		}
 
@@ -184,7 +184,7 @@ func (fsm *FileServerManager) processServer(id string, instance *FileServerInsta
 
 	files, err := fsm.processor.GetFilesInDirectory(configDir)
 	if err != nil {
-		log.Printf("Error reading directory from server %s (path %q): %v", id, configDir, err)
+		log.Printf("error reading directory from server %s (path %q): %v", id, configDir, err)
 		instance.isHealthy = false
 		return
 	}
@@ -193,7 +193,7 @@ func (fsm *FileServerManager) processServer(id string, instance *FileServerInsta
 
 	for _, filePath := range files {
 		if err := fsm.processSingleFile(id, filePath); err != nil {
-			log.Printf("Error processing file %s from server %s: %v", filePath, id, err)
+			log.Printf("error processing file %s from server %s: %v", filePath, id, err)
 		}
 	}
 
@@ -202,11 +202,11 @@ func (fsm *FileServerManager) processServer(id string, instance *FileServerInsta
 
 // processSingleFile обрабатывает один файл
 func (fsm *FileServerManager) processSingleFile(serverID, filePath string) error {
-	log.Printf("File processing: %s (server: %s)", filePath, serverID)
+	log.Printf("file processing: %s (server: %s)", filePath, serverID)
 
 	fileInfo, err := fsm.processor.ProcessFile(filePath)
 	if err != nil {
-		return fmt.Errorf("Failed to process file: %w", err)
+		return fmt.Errorf("failed to process file: %w", err)
 	}
 
 	// Включаем ID сервера в имя устройства для уникальности
@@ -215,10 +215,10 @@ func (fsm *FileServerManager) processSingleFile(serverID, filePath string) error
 	ctx := context.Background()
 	_, err = fsm.processor.SaveVersion(ctx, fsm.db, fileInfo)
 	if err != nil {
-		return fmt.Errorf("Failed to save version: %w", err)
+		return fmt.Errorf("failed to save version: %w", err)
 	}
 
-	log.Printf("The version for has been successfully processed %s", deviceName)
+	log.Printf("processed version for %s", deviceName)
 	return nil
 }
 
@@ -236,13 +236,13 @@ func (fsm *FileServerManager) CheckHealth() {
 		healthy := true
 		if err := instance.fs.CheckConnection(); err != nil {
 			healthy = false
-			log.Printf("Health check failed for server %s: %v", id, err)
+			log.Printf("health check failed for server %s: %v", id, err)
 		}
 
 		if !healthy && instance.isHealthy {
-			log.Printf("Server %s has become unhealthy, attempting to remount", id)
+			log.Printf("server %s became unhealthy, attempting remount", id)
 			if err := instance.fs.Mount(); err != nil {
-				log.Printf("Failed to remount the server %s: %v", id, err)
+				log.Printf("failed to remount server %s: %v", id, err)
 			} else {
 				healthy = true
 			}
@@ -287,13 +287,13 @@ func (fsm *FileServerManager) Close() error {
 	for id, instance := range fsm.servers {
 		if instance.fs != nil {
 			if err := instance.fs.Unmount(); err != nil {
-				errors = append(errors, fmt.Errorf("Failed to unmount the server %s: %w", id, err))
+				errors = append(errors, fmt.Errorf("failed to unmount server %s: %w", id, err))
 			}
 		}
 	}
 
 	if len(errors) > 0 {
-		return fmt.Errorf("Unmount errors: %v", errors)
+		return fmt.Errorf("unmount errors: %v", errors)
 	}
 
 	return nil
@@ -307,7 +307,7 @@ func getConfigsFromEnv() map[string]*FileServerConfig {
 	// Проверяем, включен ли локальный режим
 	if getEnv("LOCAL_FS_ENABLED", "false") == "true" {
 		localPath := getEnv("LOCAL_FS_PATH", "/app/configs")
-		log.Printf("DEVELOPMENT MODE: Local Storage %q (Place files in scheduler/configs on the host)", localPath)
+		log.Printf("development mode: local storage %q (place files in scheduler/configs on the host)", localPath)
 		configs["local"] = &FileServerConfig{
 			ID:        "local",
 			Type:      "local",
@@ -318,7 +318,7 @@ func getConfigsFromEnv() map[string]*FileServerConfig {
 	}
 
 	// ПРОИЗВОДСТВЕННЫЙ РЕЖИМ: используем удаленные файловые сервера
-	log.Println("PRODUCTION MODE: Remote file servers are used")
+	log.Println("production mode: remote file servers are used")
 
 	// Конфигурация для сервера 1
 	if getEnv("FILE_SERVER_ENABLED", "true") == "true" {

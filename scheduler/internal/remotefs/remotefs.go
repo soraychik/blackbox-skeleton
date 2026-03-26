@@ -70,11 +70,11 @@ func NewRemoteFileSystemFromEnv(prefix string) (*RemoteFileSystem, error) {
 		}
 
 	default:
-		return nil, fmt.Errorf("Unsupported file system type: %s", fsType)
+		return nil, fmt.Errorf("unsupported file system type: %s", fsType)
 	}
 
 	if err := rfs.validateConfig(); err != nil {
-		return nil, fmt.Errorf("Invalid configuration: %w", err)
+		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
 	return rfs, nil
@@ -100,11 +100,11 @@ func (rfs *RemoteFileSystem) validateConfig() error {
 	switch rfs.fsType {
 	case NFS:
 		if rfs.server == "" || rfs.sharePath == "" {
-			return fmt.Errorf("NFS_SERVER and NFS_SHARE_PATH must be set for NFS")
+			return fmt.Errorf("nfs_server and nfs_share_path must be set for nfs")
 		}
 	case SMB:
 		if rfs.server == "" || rfs.shareName == "" {
-			return fmt.Errorf("SMB_SERVER and SMB_SHARE_NAME must be set for SMB")
+			return fmt.Errorf("smb_server and smb_share_name must be set for smb")
 		}
 	}
 	return nil
@@ -116,10 +116,10 @@ func (rfs *RemoteFileSystem) Mount() error {
 		return nil
 	}
 
-	log.Printf("Mounting file system %s from server %s", rfs.fsType, rfs.server)
+	log.Printf("mounting file system %s from server %s", rfs.fsType, rfs.server)
 
 	if err := os.MkdirAll(rfs.mountPoint, 0755); err != nil {
-		return fmt.Errorf("Failed to create mount point %s: %w", rfs.mountPoint, err)
+		return fmt.Errorf("failed to create mount point %s: %w", rfs.mountPoint, err)
 	}
 
 	var cmd *exec.Cmd
@@ -137,15 +137,15 @@ func (rfs *RemoteFileSystem) Mount() error {
 		cmd = exec.Command("mount", "-t", "cifs", "-o", options, remotePath, rfs.mountPoint)
 
 	default:
-		return fmt.Errorf("Unsupported file system type: %s", rfs.fsType)
+		return fmt.Errorf("unsupported file system type: %s", rfs.fsType)
 	}
 
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("Failed to mount %s: %v, output: %s", rfs.fsType, err, string(output))
+		return fmt.Errorf("failed to mount %s: %w, output: %s", rfs.fsType, err, string(output))
 	}
 
 	rfs.isMounted = true
-	log.Printf("Successfully mounted file system %s on %s", rfs.fsType, rfs.mountPoint)
+	log.Printf("mounted file system %s on %s", rfs.fsType, rfs.mountPoint)
 	return nil
 }
 
@@ -155,10 +155,10 @@ func (rfs *RemoteFileSystem) Unmount() error {
 		return nil
 	}
 
-	log.Printf("Unmounting filesystem %s from %s", rfs.fsType, rfs.mountPoint)
+	log.Printf("unmounting filesystem %s from %s", rfs.fsType, rfs.mountPoint)
 
 	if output, err := exec.Command("umount", rfs.mountPoint).CombinedOutput(); err != nil {
-		log.Printf("Warning: Failed to unmount %s: %v, output: %s", rfs.fsType, err, string(output))
+		log.Printf("warning: failed to unmount %s: %v, output: %s", rfs.fsType, err, string(output))
 	}
 
 	rfs.isMounted = false
@@ -188,13 +188,13 @@ func (rfs *RemoteFileSystem) IsMounted() bool {
 func (rfs *RemoteFileSystem) CheckConnection() error {
 	if !rfs.IsMounted() {
 		if err := rfs.Mount(); err != nil {
-			return fmt.Errorf("Connection failed: %w", err)
+			return fmt.Errorf("connection failed: %w", err)
 		}
 	}
 
 	testFile := filepath.Join(rfs.mountPoint, ".connection_test")
 	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
-		return fmt.Errorf("Cannot write to mount point: %w", err)
+		return fmt.Errorf("cannot write to mount point: %w", err)
 	}
 
 	os.Remove(testFile)

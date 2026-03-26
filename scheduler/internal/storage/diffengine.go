@@ -280,11 +280,11 @@ func (de *DiffEngine) CompressPatch(patchContent string) ([]byte, error) {
 	gz := gzip.NewWriter(&compressed)
 
 	if _, err := gz.Write([]byte(patchContent)); err != nil {
-		return nil, fmt.Errorf("Failed to compress patch: %w", err)
+		return nil, fmt.Errorf("failed to compress patch: %w", err)
 	}
 
 	if err := gz.Close(); err != nil {
-		return nil, fmt.Errorf("Failed to close gzip writer: %w", err)
+		return nil, fmt.Errorf("failed to close gzip writer: %w", err)
 	}
 
 	return compressed.Bytes(), nil
@@ -293,13 +293,13 @@ func (de *DiffEngine) CompressPatch(patchContent string) ([]byte, error) {
 func (de *DiffEngine) DecompressPatch(compressedData []byte) (string, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(compressedData))
 	if err != nil {
-		return "", fmt.Errorf("Failed to create gzip reader: %w", err)
+		return "", fmt.Errorf("failed to create gzip reader: %w", err)
 	}
 	defer gz.Close()
 
 	patchData, err := io.ReadAll(gz)
 	if err != nil {
-		return "", fmt.Errorf("Failed to read decompressed data: %w", err)
+		return "", fmt.Errorf("failed to read decompressed data: %w", err)
 	}
 
 	return string(patchData), nil

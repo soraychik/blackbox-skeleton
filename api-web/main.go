@@ -65,7 +65,7 @@ func main() {
 	// Принудительный запуск сканирования (прокси к scheduler)
 	router.POST("/scan", postTriggerScan)
 
-	log.Println("API Web server starting on :8080")
+	log.Println("api web server starting on :8080")
 	router.Run(":8080")
 }
 
@@ -77,7 +77,7 @@ func NewDB() (*sql.DB, error) {
 	dbName := getEnv("DATABASE_NAME", "blackbox")
 
 	dsn := dbUser + ":" + dbPassword + "@tcp(" + dbHost + ":" + dbPort + ")/" + dbName + "?parseTime=true"
-	log.Printf("Connecting to MySQL: %s", dsn)
+	log.Printf("connecting to mysql: %s", dsn)
 
 	conn, err := sql.Open("mysql", dsn)
 	if err != nil {
@@ -93,7 +93,7 @@ func NewDB() (*sql.DB, error) {
 		return nil, err
 	}
 
-	log.Println("Successfully connected to MySQL database")
+	log.Println("successfully connected to mysql database")
 	return conn, nil
 }
 
@@ -116,7 +116,7 @@ func postTriggerScan(c *gin.Context) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Trigger scan request to scheduler failed: %v", err)
+		log.Printf("trigger scan request to scheduler failed: %v", err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Scheduler unreachable"})
 		return
 	}
@@ -537,7 +537,7 @@ func getVersionContent(c *gin.Context) {
 
 	computedHash := fmt.Sprintf("%x", sha256.Sum256(content))
 	if computedHash != version.VersionHash {
-		log.Printf("Warning: hash mismatch for version %d: expected %s, got %s", id, version.VersionHash, computedHash)
+		log.Printf("warning: hash mismatch for version %d: expected %s, got %s", id, version.VersionHash, computedHash)
 	}
 
 	c.Data(http.StatusOK, "text/plain; charset=utf-8", content)
@@ -557,7 +557,7 @@ func getCachedVersionContent(ctx context.Context, db *sql.DB, minioClient *stora
 }
 
 func reconstructVersionContent(ctx context.Context, db *sql.DB, minioClient *storage.MinIOImprovedClient, version *ConfigVersion) ([]byte, error) {
-	log.Printf("DEBUG: reconstructVersionContent called with StorageType=%q, ParentVersionID=%v, StoragePath=%q",
+	log.Printf("debug: reconstructVersionContent called with StorageType=%q, ParentVersionID=%v, StoragePath=%q",
 		version.StorageType, version.ParentVersionID, version.StoragePath)
 
 	if version.StorageType == "base" {
@@ -567,17 +567,17 @@ func reconstructVersionContent(ctx context.Context, db *sql.DB, minioClient *sto
 	if version.StorageType == "diff" && version.ParentVersionID != nil {
 		parentVersion, err := getVersionByID(db, *version.ParentVersionID)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to get parent version: %w", err)
+			return nil, fmt.Errorf("failed to get parent version: %w", err)
 		}
 
 		baseContent, err := getCachedVersionContent(ctx, db, minioClient, parentVersion)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to reconstruct parent: %w", err)
+			return nil, fmt.Errorf("failed to reconstruct parent: %w", err)
 		}
 
 		patchData, err := minioClient.DownloadConfig(ctx, version.StoragePath)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to download patch: %w", err)
+			return nil, fmt.Errorf("failed to download patch: %w", err)
 		}
 
 		diffEngine := storage.NewDiffEngine()
@@ -586,7 +586,7 @@ func reconstructVersionContent(ctx context.Context, db *sql.DB, minioClient *sto
 		return diffEngine.ApplyDiff(baseContent, patchContent)
 	}
 
-	return nil, fmt.Errorf("Unknown storage type: %s", version.StorageType)
+	return nil, fmt.Errorf("unknown storage type: %s", version.StorageType)
 }
 
 func getVersionByID(db *sql.DB, id int) (*ConfigVersion, error) {
@@ -705,7 +705,7 @@ func getVersionDiff(c *gin.Context) {
 			id1, id2, addedLines, removedLines, diffStr,
 		)
 		if err != nil {
-			log.Printf("Failed to cache diff: %v", err)
+			log.Printf("failed to cache diff: %v", err)
 		}
 	}
 
@@ -923,14 +923,14 @@ func getDiffByDate(c *gin.Context) {
 func resolveDeviceVersionsByDate(ctx context.Context, deviceID int, date1, date2 string) (verID1, verID2 int, err error) {
 	db, err := NewDB()
 	if err != nil {
-		return 0, 0, fmt.Errorf("Database connection failed")
+		return 0, 0, fmt.Errorf("database connection failed")
 	}
 	defer db.Close()
 
 	// Версия «на дату» — последняя версия с created_at в эту дату (по ТЗ — «конфиг за выбранную дату»)
 	for _, d := range []string{date1, date2} {
 		if len(d) != 10 || d[4] != '-' || d[7] != '-' {
-			return 0, 0, fmt.Errorf("Invalid date format, use YYYY-MM-DD")
+			return 0, 0, fmt.Errorf("invalid date format, use YYYY-MM-DD")
 		}
 	}
 
@@ -941,20 +941,20 @@ func resolveDeviceVersionsByDate(ctx context.Context, deviceID int, date1, date2
 		deviceID, date1, deviceID, date2,
 	).Scan(&v1ID, &v2ID)
 	if err != nil {
-		return 0, 0, fmt.Errorf("Failed to resolve versions by date: %v", err)
+		return 0, 0, fmt.Errorf("failed to resolve versions by date: %w", err)
 	}
 	lastDate, _ := getLastVersionDate(db, deviceID)
 	if !v1ID.Valid {
 		if lastDate != "" {
-			return 0, 0, fmt.Errorf("No version for date %s; last config registered: %s", date1, lastDate)
+			return 0, 0, fmt.Errorf("no version for date %s; last config registered: %s", date1, lastDate)
 		}
-		return 0, 0, fmt.Errorf("No version for date %s", date1)
+		return 0, 0, fmt.Errorf("no version for date %s", date1)
 	}
 	if !v2ID.Valid {
 		if lastDate != "" {
-			return 0, 0, fmt.Errorf("No version for date %s; last config registered: %s", date2, lastDate)
+			return 0, 0, fmt.Errorf("no version for date %s; last config registered: %s", date2, lastDate)
 		}
-		return 0, 0, fmt.Errorf("No version for date %s", date2)
+		return 0, 0, fmt.Errorf("no version for date %s", date2)
 	}
 	return int(v1ID.Int64), int(v2ID.Int64), nil
 }
@@ -1298,7 +1298,7 @@ func postSearchCount(c *gin.Context) {
 		var dv deviceVersion
 		var mgmtIP sql.NullString
 		if err := rows.Scan(&dv.deviceID, &dv.hostname, &mgmtIP, &dv.versionID, &dv.storageType, &dv.storagePath); err != nil {
-			log.Printf("Failed to scan device version: %v", err)
+			log.Printf("failed to scan device version: %v", err)
 			continue
 		}
 		if mgmtIP.Valid {
@@ -1312,13 +1312,13 @@ func postSearchCount(c *gin.Context) {
 	for _, dv := range devices {
 		version, err := getVersionByID(db, dv.versionID)
 		if err != nil {
-			log.Printf("Failed to get version %d: %v", dv.versionID, err)
+			log.Printf("failed to get version %d: %v", dv.versionID, err)
 			continue
 		}
 
 		content, err := getCachedVersionContent(c.Request.Context(), db, minioClient, version)
 		if err != nil {
-			log.Printf("Failed to get content for device %d: %v", dv.deviceID, err)
+			log.Printf("failed to get content for device %d: %v", dv.deviceID, err)
 			continue
 		}
 

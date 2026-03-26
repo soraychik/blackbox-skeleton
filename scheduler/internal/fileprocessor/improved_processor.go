@@ -29,7 +29,7 @@ func NewImprovedFileProcessor(useMinIO bool, diffThreshold float64) (*ImprovedFi
 	if useMinIO {
 		minioClient, err = storage.NewMinIOImprovedClient()
 		if err != nil {
-			return nil, fmt.Errorf("Failed to initialize MinIO client: %w", err)
+		return nil, fmt.Errorf("failed to initialize minio client: %w", err)
 		}
 	}
 
@@ -44,12 +44,12 @@ func NewImprovedFileProcessor(useMinIO bool, diffThreshold float64) (*ImprovedFi
 func (ifp *ImprovedFileProcessor) ProcessFile(filePath string) (*models.FileInfo, error) {
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get file info: %v", err)
+		return nil, fmt.Errorf("failed to get file info: %w", err)
 	}
 
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to read file: %v", err)
+		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
 	normalizedContent := normalizeLineEndings(content)
@@ -82,26 +82,26 @@ func (ifp *ImprovedFileProcessor) SaveVersion(
 ) (*models.ConfigVersion, error) {
 	device, err := db.GetOrCreateDevice(fileInfo.Hostname)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get or create device: %w", err)
+		return nil, fmt.Errorf("failed to get or create device: %w", err)
 	}
 	fileInfo.DeviceID = device.ID
 
 	latestVersion, err := db.GetLatestVersion(device.ID)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get latest version: %w", err)
+		return nil, fmt.Errorf("failed to get latest version: %w", err)
 	}
 
 	if latestVersion != nil && latestVersion.VersionHash == fileInfo.Hash {
-		log.Printf("No changes detected for %s (hash: %s), skipping save", fileInfo.Name, fileInfo.Hash[:8])
+		log.Printf("no changes detected for %s (hash: %s), skipping save", fileInfo.Name, fileInfo.Hash[:8])
 		return latestVersion, nil
 	}
 
-	log.Printf("Processing new version for device %s (hash: %s)", fileInfo.Hostname, fileInfo.Hash[:8])
+	log.Printf("processing new version for device %s (hash: %s)", fileInfo.Hostname, fileInfo.Hash[:8])
 
 	storageType, storagePath, originalSize, compressedSize, parentVersionID, chainBaseID, chainPosition, err :=
 		ifp.determineStorageType(ctx, db, fileInfo, latestVersion)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to determine storage type: %w", err)
+		return nil, fmt.Errorf("failed to determine storage type: %w", err)
 	}
 
 	version, err := db.SaveVersion(
@@ -116,10 +116,10 @@ func (ifp *ImprovedFileProcessor) SaveVersion(
 		compressedSize,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to save version: %w", err)
+		return nil, fmt.Errorf("failed to save version: %w", err)
 	}
 
-	log.Printf("Successfully saved version %d for device %s (storage: %s, chain_pos: %d)",
+	log.Printf("successfully saved version %d for device %s (storage: %s, chain_pos: %d)",
 		version.ID, fileInfo.Hostname, version.StorageType, version.ChainPosition)
 
 	return version, nil
@@ -136,7 +136,7 @@ func (ifp *ImprovedFileProcessor) determineStorageType(
 	}
 
 	if latestVersion.ChainPosition >= CHAIN_LENGTH_THRESHOLD-1 {
-		log.Printf("Chain position %d >= %d, starting new chain", latestVersion.ChainPosition, CHAIN_LENGTH_THRESHOLD)
+		log.Printf("chain position %d >= %d, starting new chain", latestVersion.ChainPosition, CHAIN_LENGTH_THRESHOLD)
 		return ifp.saveBaseVersion(ctx, fileInfo, latestVersion, latestVersion.ID)
 	}
 
@@ -165,12 +165,12 @@ func (ifp *ImprovedFileProcessor) determineStorageType(
 		baseOriginalSize = len(baseContent)
 	}
 	if diffSizeUncompressed >= baseOriginalSize {
-		log.Printf("Diff size (uncompressed) %d >= base size %d, starting new chain", diffSizeUncompressed, baseOriginalSize)
+		log.Printf("diff size (uncompressed) %d >= base size %d, starting new chain", diffSizeUncompressed, baseOriginalSize)
 		return ifp.saveBaseVersion(ctx, fileInfo, latestVersion, latestVersion.ID)
 	}
 
 	if !shouldUseDiff {
-		log.Printf("Diff savings %.1f%% below threshold, starting new chain", savingsPercent)
+		log.Printf("diff savings %.1f%% below threshold, starting new chain", savingsPercent)
 		return ifp.saveBaseVersion(ctx, fileInfo, latestVersion, latestVersion.ID)
 	}
 
@@ -227,7 +227,7 @@ func (ifp *ImprovedFileProcessor) saveDiffVersion(
 	// previousFullContent = восстановленный контент (база + все диффы до latestVersion), храним только дельту
 	patchContent, err := ifp.diffEngine.CreateDiff(previousFullContent, fileInfo.Content, latestVersion.ID)
 	if err != nil {
-		return "", "", 0, 0, nil, nil, 0, fmt.Errorf("Failed to create diff: %w", err)
+		return "", "", 0, 0, nil, nil, 0, fmt.Errorf("failed to create diff: %w", err)
 	}
 
 	var objectName string
@@ -238,15 +238,15 @@ func (ifp *ImprovedFileProcessor) saveDiffVersion(
 		origSize = uint32(o)
 		compSize = uint32(c)
 		if err != nil {
-			return "", "", 0, 0, nil, nil, 0, fmt.Errorf("Failed to upload diff to MinIO: %w", err)
+			return "", "", 0, 0, nil, nil, 0, fmt.Errorf("failed to upload diff to minio: %w", err)
 		}
 	} else {
 		archivePath := fmt.Sprintf("/app/archived_diffs/%d/%s.patch", fileInfo.DeviceID, fileInfo.Hash)
 		if err := os.MkdirAll(filepath.Dir(archivePath), 0755); err != nil {
-			return "", "", 0, 0, nil, nil, 0, fmt.Errorf("Failed to create directories: %w", err)
+			return "", "", 0, 0, nil, nil, 0, fmt.Errorf("failed to create directories: %w", err)
 		}
 		if err := os.WriteFile(archivePath, []byte(patchContent), 0644); err != nil {
-			return "", "", 0, 0, nil, nil, 0, fmt.Errorf("Failed to write file: %w", err)
+			return "", "", 0, 0, nil, nil, 0, fmt.Errorf("failed to write file: %w", err)
 		}
 		objectName = archivePath
 		origSize = uint32(len(patchContent))
@@ -273,7 +273,7 @@ func (ifp *ImprovedFileProcessor) getVersionContent(ctx context.Context, version
 		return os.ReadFile(version.StoragePath)
 	}
 
-	return nil, fmt.Errorf("Unable to retrieve version content")
+	return nil, fmt.Errorf("unable to retrieve version content")
 }
 
 func (ifp *ImprovedFileProcessor) ReconstructVersion(
@@ -288,17 +288,17 @@ func (ifp *ImprovedFileProcessor) ReconstructVersion(
 	if version.StorageType == "diff" && version.ParentVersionID != nil {
 		parentVersion, err := db.GetVersionByID(*version.ParentVersionID)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to get parent version: %w", err)
+			return nil, fmt.Errorf("failed to get parent version: %w", err)
 		}
 
 		baseContent, err := ifp.ReconstructVersion(ctx, db, parentVersion)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to reconstruct parent version: %w", err)
+			return nil, fmt.Errorf("failed to reconstruct parent version: %w", err)
 		}
 
 		patchData, err := ifp.getVersionContent(ctx, version)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to get patch data: %w", err)
+			return nil, fmt.Errorf("failed to get patch data: %w", err)
 		}
 
 		patchContent := string(patchData)
@@ -309,7 +309,7 @@ func (ifp *ImprovedFileProcessor) ReconstructVersion(
 		return ifp.diffEngine.ApplyDiff(baseContent, patchContent)
 	}
 
-	return nil, fmt.Errorf("Unknown storage type: %s", version.StorageType)
+	return nil, fmt.Errorf("unknown storage type: %s", version.StorageType)
 }
 
 func (ifp *ImprovedFileProcessor) GetFilesInDirectory(dirPath string) ([]string, error) {
@@ -317,7 +317,7 @@ func (ifp *ImprovedFileProcessor) GetFilesInDirectory(dirPath string) ([]string,
 
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to read directory: %v", err)
+		return nil, fmt.Errorf("failed to read directory: %w", err)
 	}
 
 	for _, entry := range entries {
