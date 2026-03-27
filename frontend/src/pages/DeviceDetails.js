@@ -209,13 +209,6 @@ const DeviceDetails = () => {
     );
   }
 
-  const leftDiffVersion = compareDialog.diffData?.left_version_id
-    ? versions.find((v) => Number(v.id) === Number(compareDialog.diffData.left_version_id))
-    : null;
-  const rightDiffVersion = compareDialog.diffData?.right_version_id
-    ? versions.find((v) => Number(v.id) === Number(compareDialog.diffData.right_version_id))
-    : null;
-
   return (
     <Box>
       <Box sx={{ mb: 3 }}>
@@ -510,10 +503,13 @@ const DeviceDetails = () => {
                 embedded 
                 initialDiffData={compareDialog.diffData}
                 deviceName={device?.hostname}
-                version1Date={leftDiffVersion?.created_at ? formatDateTime(leftDiffVersion.created_at) : null}
-                version2Date={rightDiffVersion?.created_at ? formatDateTime(rightDiffVersion.created_at) : null}
                 leftTitle={compareDialog.leftTitle}
                 rightTitle={compareDialog.rightTitle}
+                leftDeviceId={device?.id}
+                rightDeviceId={device?.id}
+                leftVersionId={compareDialog.diffData.left_version_id}
+                rightVersionId={compareDialog.diffData.right_version_id}
+                onViewVersion={handleViewVersion}
               />
             ) : (
               <Typography>Ошибка при загрузке diff</Typography>

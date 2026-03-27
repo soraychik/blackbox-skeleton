@@ -175,11 +175,12 @@ const DeviceDiff = () => {
               <ChangesTab 
                 embedded 
                 initialDiffData={diffData}
-                deviceName={`${leftDevice?.hostname} и ${rightDevice?.hostname}`}
+                deviceName={leftDevice?.hostname}
+                rightDeviceName={rightDevice?.hostname}
                 version1Date={versions1?.[0]?.created_at ? formatDateTime(versions1[0].created_at) : null}
                 version2Date={versions2?.[0]?.created_at ? formatDateTime(versions2[0].created_at) : null}
-                leftTitle={leftDevice?.hostname && versions1?.[0]?.created_at ? `${leftDevice.hostname} (${formatDateTime(versions1[0].created_at)})` : null}
-                rightTitle={rightDevice?.hostname && versions2?.[0]?.created_at ? `${rightDevice.hostname} (${formatDateTime(versions2[0].created_at)})` : null}
+                leftDeviceId={leftDevice?.id}
+                rightDeviceId={rightDevice?.id}
               />
             ) : (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
