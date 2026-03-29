@@ -4,7 +4,7 @@
  * @returns {string} Дата в формате DD/MM/YYYY
  */
 export const toDDMMYYYY = (isoDate) => {
-  if (!isoDate || typeof isoDate !== 'string') return isoDate || '';
+  if (!isoDate || typeof isoDate !== 'string') return '';
   const parts = isoDate.trim().split(/[-/]/);
   if (parts.length !== 3) return isoDate;
   const [y, m, d] = parts[0].length === 4 ? [parts[0], parts[1], parts[2]] : [parts[2], parts[1], parts[0]];
