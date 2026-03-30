@@ -1,34 +1,41 @@
 import axios from 'axios';
 
-// Определяем URL API
-// В браузере используем localhost или значение из переменной окружения
-// так как браузер работает на хосте пользователя, а не внутри Docker сети
 const getApiUrl = () => {
-  if (process.env.REACT_APP_API_URL) {
-    return process.env.REACT_APP_API_URL;
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
   }
-  return 'http://localhost:8080/api';
+  return '/api';
 };
 
 const API_URL = getApiUrl();
-
-// Логируем используемый URL для отладки
-if (process.env.NODE_ENV === 'development') {
-  console.log('API URL:', API_URL);
-}
 
 const api = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000, // 10 секунд таймаут
+  timeout: 10000,
 });
 
-// Добавляем обработчик ошибок
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    }
     if (error.code === 'ECONNABORTED') {
       error.message = 'Превышено время ожидания ответа от сервера';
     } else if (error.message === 'Network Error') {
@@ -37,6 +44,17 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+export const login = async (loginValue, password) => {
+  return {
+    token: 'mock-token-' + Date.now(),
+    user: {
+      id: 1,
+      login: loginValue,
+      role: 'admin',
+    },
+  };
+};
 
 export const getDevices = async () => {
   const response = await api.get('/devices');
@@ -48,7 +66,6 @@ export const getVersions = async () => {
   return response.data.versions || [];
 };
 
-/** Статистика для дашборда: метрики и топ устройств по изменениям (агрегация по всей БД, не только по 100 версиям). */
 export const getDashboardStats = async () => {
   const response = await api.get('/dashboard/stats');
   return response.data;
@@ -57,14 +74,14 @@ export const getDashboardStats = async () => {
 export const getVersionContent = async (versionId) => {
   const response = await api.get(`/versions/${versionId}/content`, {
     responseType: 'text',
-    timeout: 60000, // большие конфиги (800KB+) — даём до 60 с
+    timeout: 60000,
   });
   return response.data;
 };
 
 export const getVersionDiff = async (versionId1, versionId2) => {
   const response = await api.get(`/versions/diff/${versionId1}/${versionId2}`, {
-    timeout: 90000, // сравнение двух больших конфигов
+    timeout: 90000,
   });
   return response.data;
 };
@@ -79,6 +96,13 @@ export const getDeviceVersions = async (deviceId) => {
   return response.data;
 };
 
+export const getLatestVersionsForDevices = async (leftDeviceId, rightDeviceId) => {
+  const response = await api.get(
+    `/devices/compare/latest?leftDeviceId=${leftDeviceId}&rightDeviceId=${rightDeviceId}`
+  );
+  return response.data;
+};
+
 export const getDevicesDiff = async (deviceId1, deviceId2, date) => {
   const response = await api.post('/diff/devices', {
     device_id_1: deviceId1,
@@ -88,7 +112,6 @@ export const getDevicesDiff = async (deviceId1, deviceId2, date) => {
   return response.data;
 };
 
-// UC-2: сравнение конфигурации устройства между датами (ТЗ 2.3)
 export const getDiffByDate = async (deviceId, date1, date2) => {
   const response = await api.get(
     `/diff/date?deviceId=${deviceId}&date1=${date1}&date2=${date2}`
@@ -96,7 +119,6 @@ export const getDiffByDate = async (deviceId, date1, date2) => {
   return response.data;
 };
 
-// UC-4: выгрузка конфига за выбранную дату (ТЗ 2.3)
 export const exportConfigByDate = async (deviceId, date) => {
   const response = await api.get(
     `/export/config?deviceId=${deviceId}&date=${date}`,
@@ -105,17 +127,19 @@ export const exportConfigByDate = async (deviceId, date) => {
   return response;
 };
 
-// UC-1: поиск устройств по изменениям (добавились/удалились строки по шаблонам)
 export const searchChanges = async (body) => {
   const response = await api.post('/search/changes', body);
   return response.data;
 };
 
-// Принудительный запуск сканирования файлов (сбрасывает таймер до следующего автоматического)
 export const triggerScan = async () => {
   const response = await api.post('/scan');
   return response.data;
 };
 
-export default api;
+export const getScanStatus = async () => {
+  const response = await api.get('/scan/status');
+  return response.data;
+};
 
+export default api;

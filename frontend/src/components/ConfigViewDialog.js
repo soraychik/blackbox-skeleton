@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { FixedSizeList } from 'react-window';
 import {
   Box,
   Button,
@@ -15,19 +16,8 @@ import {
   Visibility as VisibilityIcon,
 } from '@mui/icons-material';
 
-/**
- * Универсальный диалог просмотра конфигурации.
- *
- * Props:
- *   open            — boolean
- *   onClose         — () => void
- *   title           — string, заголовок диалога
- *   content         — string | null, полный текст конфига (если передан — показывается как есть)
- *   snippets        — array | null, массив { line, text, match } (если передан — показываются сниппеты)
- *   onDownload      — () => void | null, колбэк скачивания
- *   downloadLoading — boolean
- *   onViewFullFile  — () => Promise<string> | null, загрузка полного файла (кнопка «Посмотреть весь файл»)
- */
+const LINE_HEIGHT = 21;
+
 const ConfigViewDialog = ({
   open,
   onClose,
@@ -43,12 +33,16 @@ const ConfigViewDialog = ({
 
   const [fullContent, setFullContent] = useState(null);
   const [loadingFull, setLoadingFull] = useState(false);
+  const listContainerRef = useRef(null);
+  const [listHeight, setListHeight] = useState(() =>
+  typeof window !== 'undefined' ? Math.floor(window.innerHeight * 0.7) : 400
+);
 
+  // ── Сначала все вычисляемые переменные ──────────────────────────────────────
   const displayContent = content !== null ? content : fullContent;
   const isFullFileMode = displayContent !== null;
   const showViewFullButton = snippets !== null && !isFullFileMode && onViewFullFile != null;
 
-  // Стили в зависимости от темы: светлая — белый фон и чёрный текст, тёмная — как в приложении
   const codeBlockSx = useMemo(
     () => ({
       fontFamily: 'monospace',
@@ -60,7 +54,6 @@ const ConfigViewDialog = ({
     [isDark]
   );
 
-  // Нумерация по правому краю, фиксированная ширина — строки текста начинаются друг под другом
   const lineNumberSx = useMemo(
     () => ({
       width: 56,
@@ -76,12 +69,12 @@ const ConfigViewDialog = ({
     []
   );
 
-  // Разбиваем контент по строкам для построчного рендера: у каждой логической строки один номер слева
   const fullContentLines = useMemo(() => {
     if (!displayContent) return [];
-    return (displayContent || '').split('\n');
+    return displayContent.split('\n');
   }, [displayContent]);
 
+  // ── Потом все useEffect (уже после объявления переменных выше) ───────────────
   useEffect(() => {
     if (!open) {
       setFullContent(null);
@@ -89,6 +82,20 @@ const ConfigViewDialog = ({
     }
   }, [open]);
 
+  useEffect(() => {
+  if (!open || !isFullFileMode || !listContainerRef.current) return;
+  const el = listContainerRef.current;
+  setListHeight(el.clientHeight);
+  const observer = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      setListHeight(entry.contentRect.height);
+    }
+  });
+  observer.observe(el);
+  return () => observer.disconnect();
+}, [open, isFullFileMode, fullContentLines.length]);
+
+  // ────────────────────────────────────────────────────────────────────────────
   const handleViewFullFile = async () => {
     if (!onViewFullFile) return;
     setLoadingFull(true);
@@ -114,7 +121,6 @@ const ConfigViewDialog = ({
       }}
     >
       <DialogContent sx={{ p: 0 }}>
-        {/* Шапка — в тёмной теме в тон приложению */}
         <Box
           sx={{
             display: 'flex',
@@ -166,60 +172,54 @@ const ConfigViewDialog = ({
           </Box>
         </Box>
 
-        {/* Тело: светлая тема — белый фон и чёрный текст, тёмная — как в приложении */}
-        <Box
-          sx={{
-            maxHeight: '70vh',
-            overflow: 'auto',
-            ...codeBlockSx,
-          }}
-        >
-          {/* Режим полного текста: каждая логическая строка — один номер слева и контент справа (перенос не дублирует номер) */}
-          {isFullFileMode && (
-            <Box sx={{ p: 2 }}>
-              {fullContentLines.map((lineText, idx) => (
-                <Box
-                  key={idx}
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 0,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  <Box
-                    component="span"
-                    sx={{
-                      ...codeBlockSx,
-                      ...lineNumberSx,
-                      flexShrink: 0,
-                      py: '2px',
-                    }}
-                  >
-                    {idx + 1}
-                  </Box>
-                  <Box
-                    component="pre"
-                    sx={{
-                      m: 0,
-                      flex: 1,
-                      minWidth: 0,
-                      ...codeBlockSx,
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-all',
-                      lineHeight: 1.5,
-                      py: '2px',
-                    }}
-                  >
-                    {lineText === '' ? '\u00A0' : lineText}
-                  </Box>
-                </Box>
-              ))}
+        {isFullFileMode && (
+          <Box sx={{ ...codeBlockSx }}>
+            <Box ref={listContainerRef} sx={{ height: '70vh' }}>
+              <FixedSizeList
+                height={listHeight}
+                width="100%"
+                itemCount={fullContentLines.length}
+                itemSize={LINE_HEIGHT}
+                overscanCount={10}
+              >
+                {({ index, style }) => (
+                  <div style={style}>
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', pl: 2, pr: 2 }}>
+                      <Box
+                        component="span"
+                        sx={{
+                          ...codeBlockSx,
+                          ...lineNumberSx,
+                          flexShrink: 0,
+                          lineHeight: LINE_HEIGHT + 'px',
+                        }}
+                      >
+                        {index + 1}
+                      </Box>
+                      <Box
+                        component="pre"
+                        sx={{
+                          m: 0,
+                          flex: 1,
+                          minWidth: 0,
+                          ...codeBlockSx,
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-all',
+                          lineHeight: LINE_HEIGHT + 'px',
+                        }}
+                      >
+                        {fullContentLines[index] === '' ? '\u00A0' : fullContentLines[index]}
+                      </Box>
+                    </Box>
+                  </div>
+                )}
+              </FixedSizeList>
             </Box>
-          )}
+          </Box>
+        )}
 
-          {/* Режим сниппетов — тот же стиль + синяя подсветка совпадений */}
-          {snippets !== null && !isFullFileMode && (
+        {snippets !== null && !isFullFileMode && (
+          <Box sx={{ maxHeight: '70vh', overflow: 'auto', ...codeBlockSx }}>
             <Box sx={{ p: 2 }}>
               {snippets.length === 0 ? (
                 <Typography color="text.secondary">Нет сниппетов</Typography>
@@ -231,11 +231,10 @@ const ConfigViewDialog = ({
                       display: 'flex',
                       gap: 2,
                       mb: 0.5,
-                      // Светлая тема: вся строка серая, текст синий. Тёмная: та же гамма — серая строка + синий текст
                       bgcolor: snippet.match
                         ? isDark
-                          ? '#475569'   // серый фон строки (на тёмном фоне)
-                          : '#e5e7eb'   // серый фон строки (светлая тема)
+                          ? '#475569'
+                          : '#e5e7eb'
                         : 'transparent',
                       borderRadius: 0.5,
                       px: 1,
@@ -271,8 +270,8 @@ const ConfigViewDialog = ({
                 ))
               )}
             </Box>
-          )}
-        </Box>
+          </Box>
+        )}
       </DialogContent>
     </Dialog>
   );

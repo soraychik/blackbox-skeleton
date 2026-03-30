@@ -9,21 +9,55 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
 
+var (
+	scanStatusMu       sync.RWMutex
+	scanInProgress     bool
+	scanLastStartedAt  time.Time
+	scanLastFinishedAt time.Time
+)
+
+func setScanStarted() {
+	scanStatusMu.Lock()
+	defer scanStatusMu.Unlock()
+	scanInProgress = true
+	scanLastStartedAt = time.Now()
+}
+
+func setScanFinished() {
+	scanStatusMu.Lock()
+	defer scanStatusMu.Unlock()
+	scanInProgress = false
+	scanLastFinishedAt = time.Now()
+}
+
+func getScanStatus() (bool, time.Time, time.Time) {
+	scanStatusMu.RLock()
+	defer scanStatusMu.RUnlock()
+	return scanInProgress, scanLastStartedAt, scanLastFinishedAt
+}
+
+func runScan(serverManager *fileserver.FileServerManager) {
+	setScanStarted()
+	serverManager.ProcessAllServers()
+	setScanFinished()
+}
+
 func main() {
-	log.Println("Запуск BlackBox Scheduler с поддержкой множественных файловых серверов...")
+	log.Println("launching blackbox scheduler with support for multiple file servers...")
 
 	// Ждём пока MySQL запустится
 	if err := waitForMySQL(); err != nil {
-		log.Fatalf("Не удалось дождаться запуска MySQL: %v", err)
+		log.Fatalf("unable to wait for mysql to start: %v", err)
 	}
 
 	// Подключаемся к БД
 	db, err := database.NewDB()
 	if err != nil {
-		log.Fatalf("Не удалось подключиться к базе данных: %v", err)
+		log.Fatalf("failed to connect to the database: %v", err)
 	}
 	defer db.Close()
 
@@ -31,12 +65,12 @@ func main() {
 	useMinIO := os.Getenv("USE_MINIO") == "true"
 	diffThreshold := getEnvFloat("DIFF_THRESHOLD", 0.1)
 
-	log.Printf("Конфигурация хранилища: MinIO=%t, ПорогDiff=%.2f", useMinIO, diffThreshold)
+	log.Printf("storage configuration: minio=%t, thresholdDiff=%.2f", useMinIO, diffThreshold)
 
 	// Создаём улучшенный процессор файлов
 	processor, err := fileprocessor.NewImprovedFileProcessor(useMinIO, diffThreshold)
 	if err != nil {
-		log.Fatalf("Не удалось создать улучшенный файловый процессор: %v", err)
+		log.Fatalf("failed to create enhanced file processor: %v", err)
 	}
 	defer processor.Close()
 
@@ -45,13 +79,13 @@ func main() {
 
 	// Загружаем конфигурации серверов
 	if err := serverManager.LoadServers(); err != nil {
-		log.Fatalf("Не удалось загрузить конфигурации файловых серверов: %v", err)
+		log.Fatalf("failed to load file server configurations: %v", err)
 	}
 
 	// Монтируем все серверы
 	if err := serverManager.MountAllServers(); err != nil {
-		log.Printf("Предупреждение: не удалось смонтировать некоторые файловые серверы: %v", err)
-		log.Println("Продолжаем работу с работающими серверами...")
+		log.Printf("warning: failed to mount some file servers: %v", err)
+		log.Println("continuing to work with running servers...")
 	}
 	defer serverManager.Close()
 
@@ -61,18 +95,18 @@ func main() {
 		scanIntervalSec = 5
 	}
 	scanInterval := time.Duration(scanIntervalSec) * time.Second
-	log.Printf("Интервал между сканированиями: %v (отсчёт после завершения полного сканирования)", scanInterval)
+	log.Printf("interval between scans: %v (count after full scan completes)", scanInterval)
 
 	// Канал для принудительного запуска сканирования (с дашборда)
 	triggerScan := make(chan struct{}, 1)
 	triggerPort := getEnv("SCHEDULER_TRIGGER_PORT", "9090")
 	go runTriggerServer(":"+triggerPort, triggerScan)
-	log.Printf("Сервер принудительного сканирования слушает порт %s", triggerPort)
+	log.Printf("force scan server is listening on port %s", triggerPort)
 
 	// Сразу обрабатываем все файлы при запуске; следующее сканирование — через scanInterval после завершения
-	log.Println("Выполняем первоначальное сканирование файлов...")
-	serverManager.ProcessAllServers()
-	log.Println("Первоначальное сканирование завершено. Ожидание до следующего сканирования...")
+	log.Println("performing an initial file scan...")
+	runScan(serverManager)
+	log.Println("initial scan complete, waiting for next scan...")
 
 	// Таймер следующего сканирования (сбрасывается после каждого полного сканирования и после принудительного)
 	nextScanTimer := time.NewTimer(scanInterval)
@@ -81,19 +115,19 @@ func main() {
 	healthTicker := time.NewTicker(60 * time.Second)
 	defer healthTicker.Stop()
 
-	log.Println("Планировщик запущен.")
+	log.Println("scheduler started")
 
 	for {
 		select {
 		case <-nextScanTimer.C:
-			log.Println("Проверяем наличие новых конфигурационных файлов...")
-			serverManager.ProcessAllServers()
-			log.Println("Цикл обработки файлов завершён. Ожидание до следующего сканирования...")
+			log.Println("checking for new configuration files...")
+			runScan(serverManager)
+			log.Println("file processing cycle completed, waiting until next scan...")
 			nextScanTimer.Reset(scanInterval)
 		case <-triggerScan:
-			log.Println("Принудительное сканирование по запросу...")
-			serverManager.ProcessAllServers()
-			log.Println("Принудительное сканирование завершено. Ожидание до следующего автоматического сканирования...")
+			log.Println("forced scanning on demand")
+			runScan(serverManager)
+			log.Println("forced scan complete, waiting until next automatic scan...")
 			nextScanTimer.Reset(scanInterval)
 		case <-healthTicker.C:
 			serverManager.CheckHealth()
@@ -117,8 +151,26 @@ func runTriggerServer(addr string, triggerChan chan<- struct{}) {
 			w.Write([]byte(`{"status":"ok","message":"scan already queued"}`))
 		}
 	})
+	http.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		inProgress, lastStartedAt, lastFinishedAt := getScanStatus()
+		lastStarted := ""
+		if !lastStartedAt.IsZero() {
+			lastStarted = lastStartedAt.UTC().Format(time.RFC3339)
+		}
+		lastFinished := ""
+		if !lastFinishedAt.IsZero() {
+			lastFinished = lastFinishedAt.UTC().Format(time.RFC3339)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(fmt.Sprintf(`{"in_progress":%t,"last_started_at":"%s","last_finished_at":"%s"}`, inProgress, lastStarted, lastFinished)))
+	})
 	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Printf("Ошибка сервера принудительного сканирования: %v", err)
+		log.Printf("forced scan server error: %v", err)
 	}
 }
 
@@ -138,7 +190,6 @@ func getEnvInt(key string, defaultValue int) int {
 	return defaultValue
 }
 
-// waitForMySQL ждёт пока MySQL станет доступен
 func getEnvFloat(key string, defaultValue float64) float64 {
 	if value := os.Getenv(key); value != "" {
 		if parsed, err := strconv.ParseFloat(value, 64); err == nil {
@@ -148,21 +199,22 @@ func getEnvFloat(key string, defaultValue float64) float64 {
 	return defaultValue
 }
 
+// waitForMySQL ждёт пока MySQL станет доступен
 func waitForMySQL() error {
-	log.Println("Ожидание готовности MySQL...")
+	log.Println("waiting for mysql to be ready...")
 
 	maxAttempts := 30
 	for i := 0; i < maxAttempts; i++ {
 		db, err := database.NewDB()
 		if err == nil {
 			db.Close()
-			log.Println("MySQL готов к работе!")
+			log.Println("mysql is ready")
 			return nil
 		}
 
-		log.Printf("Попытка %d/%d: MySQL еще не готов, повторная попытка через 2 секунды...", i+1, maxAttempts)
+		log.Printf("attempt %d/%d: mysql is not ready yet, retrying in 2 seconds...", i+1, maxAttempts)
 		time.Sleep(2 * time.Second)
 	}
 
-	return fmt.Errorf("MySQL не стал готов после %d попыток", maxAttempts)
+	return fmt.Errorf("mysql was not ready after %d attempts", maxAttempts)
 }

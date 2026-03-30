@@ -14,6 +14,7 @@ import {
   TableCell,
   TableContainer,
   TableHead,
+  TablePagination,
   TableRow,
   TextField,
   Typography,
@@ -34,6 +35,8 @@ const Search = () => {
     caseSensitive: false,
   });
   const [results, setResults] = useState(null);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [snippetsDialog, setSnippetsDialog] = useState({
     open: false,
     device: null,
@@ -56,7 +59,7 @@ const Search = () => {
 
       const data = await searchPattern(requestBody);
       setResults(data);
-    } catch (error) {
+    } catch {
       setError('Не удалось выполнить поиск. Проверьте соединение с сервером');
     } finally {
       setLoading(false);
@@ -105,7 +108,7 @@ const Search = () => {
       a.download = `config_${snippetsDialog.device}.txt`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (error) {
+    } catch {
       setError('Не удалось скачать конфигурацию');
     } finally {
       setSnippetsDialog((prev) => ({ ...prev, downloadLoading: false }));
@@ -200,7 +203,7 @@ const Search = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {results.map((result) => (
+                  {results.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((result) => (
                     <TableRow
                       key={result.device_id}
                       hover
@@ -226,6 +229,18 @@ const Search = () => {
                 </TableBody>
               </Table>
             </TableContainer>
+            <TablePagination
+              component="div"
+              count={results.length}
+              page={page}
+              onPageChange={(e, newPage) => setPage(newPage)}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={(e) => {
+                setRowsPerPage(parseInt(e.target.value, 10));
+                setPage(0);
+              }}
+              rowsPerPageOptions={[10, 25, 50, 100]}
+            />
           </CardContent>
         </Card>
       )}

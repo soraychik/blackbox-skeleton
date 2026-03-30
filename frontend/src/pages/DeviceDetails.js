@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -45,9 +45,8 @@ const DeviceDetails = () => {
   const [versions, setVersions] = useState([]);
   const [device, setDevice] = useState(null);
   const [selectedVersions, setSelectedVersions] = useState({ left: null, right: null });
-  const [compareLoading, setCompareLoading] = useState(false);
   const [viewDialog, setViewDialog] = useState({ open: false, content: '', versionId: null });
-  const [compareDialog, setCompareDialog] = useState({ open: false, diffData: null, loading: false });
+  const [compareDialog, setCompareDialog] = useState({ open: false, diffData: null, loading: false, leftTitle: null, rightTitle: null });
   const [compareByDate, setCompareByDate] = useState({ date1: '', date2: '' });
   const [exportDate, setExportDate] = useState('');
   const [exportLoading, setExportLoading] = useState(false);
@@ -55,11 +54,7 @@ const DeviceDetails = () => {
   const [compareByDateError, setCompareByDateError] = useState('');
   const [exportError, setExportError] = useState('');
 
-  useEffect(() => {
-    loadData();
-  }, [id]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const data = await getDeviceVersions(id);
@@ -70,7 +65,11 @@ const DeviceDetails = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleViewVersion = async (versionId) => {
     try {
@@ -81,6 +80,21 @@ const DeviceDetails = () => {
     }
   };
 
+  const buildVersionFilename = (versionId) => {
+    const version = versions.find((v) => Number(v.id) === Number(versionId));
+    const safeHostname = String(device?.hostname || id).replace(/[\\/:*?"<>|]/g, '_');
+    let datePart = 'unknown-date';
+
+    if (version?.created_at) {
+      const date = new Date(version.created_at);
+      if (!Number.isNaN(date.getTime())) {
+        datePart = date.toISOString().slice(0, 10);
+      }
+    }
+
+    return `config_${safeHostname}_${datePart}.txt`;
+  };
+
   const handleDownloadVersion = async (versionId) => {
     try {
       const content = await getVersionContent(versionId);
@@ -88,7 +102,7 @@ const DeviceDetails = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `config_v${versionId}.txt`;
+      a.download = buildVersionFilename(versionId);
       a.click();
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -100,17 +114,21 @@ const DeviceDetails = () => {
     if (!selectedVersions.left || !selectedVersions.right) return;
     
     try {
-      setCompareDialog({ open: true, diffData: null, loading: true });
+      setCompareDialog({ open: true, diffData: null, loading: true, leftTitle: null, rightTitle: null });
       const diff = await getVersionDiff(selectedVersions.left, selectedVersions.right);
-      setCompareDialog({ open: true, diffData: diff, loading: false });
+      const left = versions.find((v) => Number(v.id) === Number(selectedVersions.left));
+      const right = versions.find((v) => Number(v.id) === Number(selectedVersions.right));
+      const leftTitle = left?.created_at ? `${device?.hostname || 'Конфиг'} (${formatDateTime(left.created_at)})` : null;
+      const rightTitle = right?.created_at ? `${device?.hostname || 'Конфиг'} (${formatDateTime(right.created_at)})` : null;
+      setCompareDialog({ open: true, diffData: diff, loading: false, leftTitle, rightTitle });
     } catch (error) {
       console.error('Failed to compare versions:', error);
-      setCompareDialog({ open: false, diffData: null, loading: false });
+      setCompareDialog({ open: false, diffData: null, loading: false, leftTitle: null, rightTitle: null });
     }
   };
 
   const closeCompareDialog = () => {
-    setCompareDialog({ open: false, diffData: null, loading: false });
+    setCompareDialog({ open: false, diffData: null, loading: false, leftTitle: null, rightTitle: null });
     setSelectedVersions({ left: null, right: null });
   };
 
@@ -120,9 +138,13 @@ const DeviceDetails = () => {
     setCompareByDateError('');
     try {
       setCompareByDateLoading(true);
-      setCompareDialog({ open: true, diffData: null, loading: true });
+      setCompareDialog({ open: true, diffData: null, loading: true, leftTitle: null, rightTitle: null });
       const diff = await getDiffByDate(id, compareByDate.date1, compareByDate.date2);
-      setCompareDialog({ open: true, diffData: diff, loading: false });
+      const left = versions.find((v) => Number(v.id) === Number(diff.left_version_id));
+      const right = versions.find((v) => Number(v.id) === Number(diff.right_version_id));
+      const leftTitle = `${device?.hostname || 'Конфиг'} (${left?.created_at ? formatDateTime(left.created_at) : toDDMMYYYY(compareByDate.date1)})`;
+      const rightTitle = `${device?.hostname || 'Конфиг'} (${right?.created_at ? formatDateTime(right.created_at) : toDDMMYYYY(compareByDate.date2)})`;
+      setCompareDialog({ open: true, diffData: diff, loading: false, leftTitle, rightTitle });
     } catch (error) {
       const msg = error.response?.data?.error || error.message;
       const withLast = typeof msg === 'string' && msg.match(/no version for date (\S+); last config registered: (\S+)/);
@@ -133,7 +155,7 @@ const DeviceDetails = () => {
           ? `Версия для даты ${toDDMMYYYY(onlyDate[1])} не обнаружена.`
           : msg;
       setCompareByDateError(formatted);
-      setCompareDialog({ open: false, diffData: null, loading: false });
+      setCompareDialog({ open: false, diffData: null, loading: false, leftTitle: null, rightTitle: null });
     } finally {
       setCompareByDateLoading(false);
     }
@@ -481,8 +503,13 @@ const DeviceDetails = () => {
                 embedded 
                 initialDiffData={compareDialog.diffData}
                 deviceName={device?.hostname}
-                version1Date={selectedVersions.left ? formatDateTime(versions.find(v => v.id === selectedVersions.left)?.created_at) : null}
-                version2Date={selectedVersions.right ? formatDateTime(versions.find(v => v.id === selectedVersions.right)?.created_at) : null}
+                leftTitle={compareDialog.leftTitle}
+                rightTitle={compareDialog.rightTitle}
+                leftDeviceId={device?.id}
+                rightDeviceId={device?.id}
+                leftVersionId={compareDialog.diffData.left_version_id}
+                rightVersionId={compareDialog.diffData.right_version_id}
+                onViewVersion={handleViewVersion}
               />
             ) : (
               <Typography>Ошибка при загрузке diff</Typography>

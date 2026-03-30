@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import {
   AppBar,
   Box,
@@ -39,11 +39,12 @@ const menuItems = [
   { text: 'Сравнение устройств', icon: <CompareIcon />, path: '/diff' },
   { text: 'Поиск', icon: <SearchIcon />, path: '/search' },
   { text: 'Поиск по изменениям', icon: <FilterListIcon />, path: '/search-changes' },
+  { text: 'Настройки', icon: <SettingsIcon />, path: '/settings' },
 ];
 
 export const ThemeToggleContext = React.createContext();
 
-const Layout = ({ children, darkMode, setDarkMode }) => {
+const Layout = ({ darkMode, setDarkMode }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -88,6 +89,17 @@ const Layout = ({ children, darkMode, setDarkMode }) => {
     setDarkMode(!darkMode);
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/login');
+  };
+
+  const handleProfile = () => {
+    setUserMenuOpen(false);
+    navigate('/settings');
+  };
+
   const drawer = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Toolbar>
@@ -123,14 +135,6 @@ const Layout = ({ children, darkMode, setDarkMode }) => {
           </ListItem>
         ))}
       </List>
-      <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
-        <ListItemButton sx={{ borderRadius: 2 }}>
-          <ListItemIcon sx={{ minWidth: 40 }}>
-            <SettingsIcon />
-          </ListItemIcon>
-          <ListItemText primary="Настройки" />
-        </ListItemButton>
-      </Box>
     </Box>
   );
 
@@ -181,11 +185,11 @@ const Layout = ({ children, darkMode, setDarkMode }) => {
                     '& .MuiListItemIcon-root': { minWidth: 36 },
                   }}
                 >
-                  <ListItemButton onClick={handleMenuClose} dense>
+                  <ListItemButton onClick={handleProfile} dense>
                     <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>
                     <ListItemText primary="Профиль" primaryTypographyProps={{ variant: 'body2' }} />
                   </ListItemButton>
-                  <ListItemButton onClick={handleMenuClose} dense>
+                  <ListItemButton onClick={handleLogout} dense>
                     <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
                     <ListItemText primary="Выйти" primaryTypographyProps={{ variant: 'body2' }} />
                   </ListItemButton>
@@ -232,7 +236,7 @@ const Layout = ({ children, darkMode, setDarkMode }) => {
           }}
         >
           <Toolbar />
-          {children}
+          <Outlet />
         </Box>
       </Box>
     </ThemeToggleContext.Provider>

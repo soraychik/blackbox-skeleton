@@ -24,7 +24,14 @@ import (
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
+var dbPool *sql.DB
+
 func main() {
+	if err := initDB(); err != nil {
+		log.Fatalf("failed to initialize database pool: %v", err)
+	}
+	defer dbPool.Close()
+
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()
 
@@ -50,6 +57,7 @@ func main() {
 	router.GET("/devices", getDevices)
 	router.GET("/devices/:id", getDeviceByID)
 	router.GET("/devices/:id/versions", getDeviceVersions)
+	router.GET("/devices/compare/latest", getLatestVersionsForDevices)
 	router.GET("/dashboard/stats", getDashboardStats)
 	router.GET("/versions", getVersions)
 	router.GET("/versions/:id/content", getVersionContent)
@@ -64,12 +72,13 @@ func main() {
 	router.POST("/search/count", postSearchCount)
 	// Принудительный запуск сканирования (прокси к scheduler)
 	router.POST("/scan", postTriggerScan)
+	router.GET("/scan/status", getScanStatus)
 
-	log.Println("API Web server starting on :8080")
+	log.Println("api web server starting on :8080")
 	router.Run(":8080")
 }
 
-func NewDB() (*sql.DB, error) {
+func initDB() error {
 	dbHost := getEnv("DATABASE_HOST", "mysql-db")
 	dbPort := getEnv("DATABASE_PORT", "3306")
 	dbUser := getEnv("DATABASE_USER", "appuser")
@@ -77,11 +86,11 @@ func NewDB() (*sql.DB, error) {
 	dbName := getEnv("DATABASE_NAME", "blackbox")
 
 	dsn := dbUser + ":" + dbPassword + "@tcp(" + dbHost + ":" + dbPort + ")/" + dbName + "?parseTime=true"
-	log.Printf("Connecting to MySQL: %s", dsn)
+	log.Printf("connecting to mysql: %s", dsn)
 
 	conn, err := sql.Open("mysql", dsn)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	conn.SetConnMaxLifetime(time.Minute * 3)
@@ -90,11 +99,19 @@ func NewDB() (*sql.DB, error) {
 
 	if err := conn.Ping(); err != nil {
 		conn.Close()
-		return nil, err
+		return err
 	}
 
-	log.Println("Successfully connected to MySQL database")
-	return conn, nil
+	log.Println("successfully connected to mysql database")
+	dbPool = conn
+	return nil
+}
+
+func NewDB() (*sql.DB, error) {
+	if dbPool == nil {
+		return nil, fmt.Errorf("database pool is not initialized")
+	}
+	return dbPool, nil
 }
 
 func getEnv(key, defaultValue string) string {
@@ -110,14 +127,14 @@ func postTriggerScan(c *gin.Context) {
 	url := strings.TrimSuffix(schedulerURL, "/") + "/scan"
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(nil))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create request"})
 		return
 	}
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Trigger scan request to scheduler failed: %v", err)
-		c.JSON(http.StatusBadGateway, gin.H{"error": "scheduler unreachable"})
+		log.Printf("trigger scan request to scheduler failed: %v", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Scheduler unreachable"})
 		return
 	}
 	defer resp.Body.Close()
@@ -127,6 +144,28 @@ func postTriggerScan(c *gin.Context) {
 		return
 	}
 	c.Data(resp.StatusCode, "application/json", body)
+}
+
+// getScanStatus возвращает статус текущего сканирования из scheduler.
+func getScanStatus(c *gin.Context) {
+	schedulerURL := getEnv("SCHEDULER_TRIGGER_URL", "http://scheduler:9090")
+	url := strings.TrimSuffix(schedulerURL, "/") + "/status"
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Printf("scan status request to scheduler failed: %v", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "scheduler unreachable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		c.JSON(resp.StatusCode, gin.H{"error": string(body)})
+		return
+	}
+	c.Data(http.StatusOK, "application/json", body)
 }
 
 type Device struct {
@@ -218,7 +257,6 @@ func getDevices(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
 		return
 	}
-	defer db.Close()
 
 	rows, err := db.Query("SELECT id, hostname, mgmt_ip, vendor, model, enabled, created_at FROM devices ORDER BY id")
 	if err != nil {
@@ -252,7 +290,6 @@ func getDeviceByID(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
 		return
 	}
-	defer db.Close()
 
 	var d Device
 	err = db.QueryRow(
@@ -277,7 +314,6 @@ func getVersions(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
 		return
 	}
-	defer db.Close()
 
 	rows, err := db.Query(`
 		SELECT cv.id, cv.device_id, cv.version_hash, cv.storage_type, cv.storage_path, 
@@ -331,7 +367,6 @@ func getDashboardStats(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
 		return
 	}
-	defer db.Close()
 
 	var totalDevices int
 	if err := db.QueryRow("SELECT COUNT(*) FROM devices").Scan(&totalDevices); err != nil {
@@ -401,7 +436,6 @@ func getDeviceVersions(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
 		return
 	}
-	defer db.Close()
 
 	// Загружаем устройство для ответа (по ТЗ 2.3)
 	var d Device
@@ -481,6 +515,112 @@ func getDeviceVersions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"device": d, "versions": versions})
 }
 
+func getLatestVersionsForDevices(c *gin.Context) {
+	leftID, err := strconv.Atoi(c.Query("leftDeviceId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid left device ID"})
+		return
+	}
+	rightID, err := strconv.Atoi(c.Query("rightDeviceId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid right device ID"})
+		return
+	}
+
+	db, err := NewDB()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
+		return
+	}
+
+	loadDevice := func(deviceID int) (*Device, error) {
+		var d Device
+		err := db.QueryRow(
+			"SELECT id, hostname, mgmt_ip, vendor, model, enabled, created_at FROM devices WHERE id = ?",
+			deviceID,
+		).Scan(&d.ID, &d.Hostname, &d.MgmtIP, &d.Vendor, &d.Model, &d.Enabled, &d.CreatedAt)
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return &d, nil
+	}
+
+	loadLatestVersion := func(deviceID int) (*ConfigVersion, error) {
+		var v ConfigVersion
+		var parentID, chainBaseID sql.NullInt32
+		err := db.QueryRow(`
+			SELECT id, device_id, version_hash, storage_type, storage_path,
+			       parent_version_id, chain_base_id, chain_position,
+			       original_size, compressed_size, created_at
+			FROM config_versions
+			WHERE device_id = ?
+			ORDER BY id DESC
+			LIMIT 1`,
+			deviceID,
+		).Scan(&v.ID, &v.DeviceID, &v.VersionHash, &v.StorageType, &v.StoragePath,
+			&parentID, &chainBaseID, &v.ChainPosition, &v.OriginalSize, &v.CompressedSize, &v.CreatedAt)
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if parentID.Valid {
+			pid := int(parentID.Int32)
+			v.ParentVersionID = &pid
+		}
+		if chainBaseID.Valid {
+			cid := int(chainBaseID.Int32)
+			v.ChainBaseID = &cid
+		}
+		return &v, nil
+	}
+
+	leftDevice, err := loadDevice(leftID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get left device"})
+		return
+	}
+	if leftDevice == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Left device not found"})
+		return
+	}
+	rightDevice, err := loadDevice(rightID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get right device"})
+		return
+	}
+	if rightDevice == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Right device not found"})
+		return
+	}
+
+	leftVersion, err := loadLatestVersion(leftID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get left latest version"})
+		return
+	}
+	rightVersion, err := loadLatestVersion(rightID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get right latest version"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"left": gin.H{
+			"device":  leftDevice,
+			"version": leftVersion,
+		},
+		"right": gin.H{
+			"device":  rightDevice,
+			"version": rightVersion,
+		},
+	})
+}
+
 func getVersionContent(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -493,7 +633,6 @@ func getVersionContent(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
 		return
 	}
-	defer db.Close()
 
 	var version ConfigVersion
 	var parentID, chainBaseID sql.NullInt32
@@ -537,7 +676,7 @@ func getVersionContent(c *gin.Context) {
 
 	computedHash := fmt.Sprintf("%x", sha256.Sum256(content))
 	if computedHash != version.VersionHash {
-		log.Printf("Warning: hash mismatch for version %d: expected %s, got %s", id, version.VersionHash, computedHash)
+		log.Printf("warning: hash mismatch for version %d: expected %s, got %s", id, version.VersionHash, computedHash)
 	}
 
 	c.Data(http.StatusOK, "text/plain; charset=utf-8", content)
@@ -557,7 +696,7 @@ func getCachedVersionContent(ctx context.Context, db *sql.DB, minioClient *stora
 }
 
 func reconstructVersionContent(ctx context.Context, db *sql.DB, minioClient *storage.MinIOImprovedClient, version *ConfigVersion) ([]byte, error) {
-	log.Printf("DEBUG: reconstructVersionContent called with StorageType=%q, ParentVersionID=%v, StoragePath=%q",
+	log.Printf("debug: reconstructVersionContent called with StorageType=%q, ParentVersionID=%v, StoragePath=%q",
 		version.StorageType, version.ParentVersionID, version.StoragePath)
 
 	if version.StorageType == "base" {
@@ -648,7 +787,6 @@ func getVersionDiff(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
 		return
 	}
-	defer db.Close()
 
 	var diffIndex DiffIndex
 	err = db.QueryRow(`
@@ -705,13 +843,12 @@ func getVersionDiff(c *gin.Context) {
 			id1, id2, addedLines, removedLines, diffStr,
 		)
 		if err != nil {
-			log.Printf("Failed to cache diff: %v", err)
+			log.Printf("failed to cache diff: %v", err)
 		}
 	}
 
 	diffLines := computeDiffLines(string(content1), string(content2))
 
-	// Отдаём только строки диффа — полные контенты не нужны для отображения и раздувают ответ
 	result := DiffResult{
 		LeftVersionID:  id1,
 		RightVersionID: id2,
@@ -833,7 +970,7 @@ func getDiffByDate(c *gin.Context) {
 		deviceIDStr = c.Query("device_id")
 	}
 	if deviceIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "deviceId is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "DeviceId is required"})
 		return
 	}
 	deviceID, err := strconv.Atoi(deviceIDStr)
@@ -875,7 +1012,6 @@ func getDiffByDate(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
 		return
 	}
-	defer db.Close()
 
 	v1, err := getVersionByID(db, id1)
 	if err != nil {
@@ -925,7 +1061,6 @@ func resolveDeviceVersionsByDate(ctx context.Context, deviceID int, date1, date2
 	if err != nil {
 		return 0, 0, fmt.Errorf("database connection failed")
 	}
-	defer db.Close()
 
 	// Версия «на дату» — последняя версия с created_at в эту дату (по ТЗ — «конфиг за выбранную дату»)
 	for _, d := range []string{date1, date2} {
@@ -941,7 +1076,7 @@ func resolveDeviceVersionsByDate(ctx context.Context, deviceID int, date1, date2
 		deviceID, date1, deviceID, date2,
 	).Scan(&v1ID, &v2ID)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to resolve versions by date: %v", err)
+		return 0, 0, fmt.Errorf("failed to resolve versions by date: %w", err)
 	}
 	lastDate, _ := getLastVersionDate(db, deviceID)
 	if !v1ID.Valid {
@@ -979,11 +1114,11 @@ func getExportConfig(c *gin.Context) {
 	}
 	dateStr := c.Query("date")
 	if deviceIDStr == "" || dateStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "deviceId and date (YYYY-MM-DD) are required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "DeviceId and date (YYYY-MM-DD) are required"})
 		return
 	}
 	if len(dateStr) != 10 || dateStr[4] != '-' || dateStr[7] != '-' {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "date must be YYYY-MM-DD"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Date must be YYYY-MM-DD"})
 		return
 	}
 	deviceID, err := strconv.Atoi(deviceIDStr)
@@ -997,7 +1132,6 @@ func getExportConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
 		return
 	}
-	defer db.Close()
 
 	var versionID int
 	var hostname string
@@ -1124,7 +1258,6 @@ func postSearchChanges(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
 		return
 	}
-	defer db.Close()
 
 	minioClient, err := storage.NewMinIOImprovedClient()
 	if err != nil {
@@ -1219,7 +1352,7 @@ func postSearchCount(c *gin.Context) {
 		return
 	}
 	if req.Pattern == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "pattern is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Pattern is required"})
 		return
 	}
 
@@ -1240,7 +1373,6 @@ func postSearchCount(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
 		return
 	}
-	defer db.Close()
 
 	minioClient, err := storage.NewMinIOImprovedClient()
 	if err != nil {
@@ -1298,7 +1430,7 @@ func postSearchCount(c *gin.Context) {
 		var dv deviceVersion
 		var mgmtIP sql.NullString
 		if err := rows.Scan(&dv.deviceID, &dv.hostname, &mgmtIP, &dv.versionID, &dv.storageType, &dv.storagePath); err != nil {
-			log.Printf("Failed to scan device version: %v", err)
+			log.Printf("failed to scan device version: %v", err)
 			continue
 		}
 		if mgmtIP.Valid {
@@ -1312,13 +1444,13 @@ func postSearchCount(c *gin.Context) {
 	for _, dv := range devices {
 		version, err := getVersionByID(db, dv.versionID)
 		if err != nil {
-			log.Printf("Failed to get version %d: %v", dv.versionID, err)
+			log.Printf("failed to get version %d: %v", dv.versionID, err)
 			continue
 		}
 
 		content, err := getCachedVersionContent(c.Request.Context(), db, minioClient, version)
 		if err != nil {
-			log.Printf("Failed to get content for device %d: %v", dv.deviceID, err)
+			log.Printf("failed to get content for device %d: %v", dv.deviceID, err)
 			continue
 		}
 

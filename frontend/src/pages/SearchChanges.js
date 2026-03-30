@@ -18,6 +18,7 @@ import {
   TableCell,
   TableContainer,
   TableHead,
+  TablePagination,
   TableRow,
   TextField,
   Typography,
@@ -45,6 +46,8 @@ const SearchChanges = () => {
     to_date: '',
   });
   const [results, setResults] = useState(null);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [diffDialog, setDiffDialog] = useState({
     open: false,
     loading: false,
@@ -61,6 +64,17 @@ const SearchChanges = () => {
       ...prev,
       [deviceId]: !prev[deviceId],
     }));
+  };
+
+  const handleChangePage = (event, newPage) => {
+    setExpandedRows({});
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setExpandedRows({});
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
   };
 
   const handleSearch = async () => {
@@ -85,7 +99,7 @@ const SearchChanges = () => {
         to_date: params.to_date || undefined,
       });
       setResults(data.devices || []);
-    } catch (error) {
+    } catch {
       setError('Не удалось выполнить поиск по изменениям');
       setResults([]);
     } finally {
@@ -98,7 +112,7 @@ const SearchChanges = () => {
     try {
       const diffData = await getVersionDiff(leftVersionId, rightVersionId);
       setDiffDialog({ open: true, loading: false, data: diffData, deviceId: null, deviceName, version1Date, version2Date });
-    } catch (error) {
+    } catch {
       setError('Не удалось загрузить сравнение версий');
       setDiffDialog({ open: false, loading: false, data: null, deviceId: null, deviceName: null, version1Date: null, version2Date: null });
     }
@@ -209,7 +223,7 @@ const SearchChanges = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {results.map((row) => (
+                  {results.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((row) => (
                     <React.Fragment key={row.device_id}>
                       <TableRow
                         hover
@@ -299,6 +313,15 @@ const SearchChanges = () => {
                 </TableBody>
               </Table>
             </TableContainer>
+            <TablePagination
+              component="div"
+              count={results.length}
+              page={page}
+              onPageChange={handleChangePage}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={handleChangeRowsPerPage}
+              rowsPerPageOptions={[10, 25, 50, 100]}
+            />
           </CardContent>
         </Card>
       )}

@@ -46,46 +46,15 @@ services:
     build: ./scheduler
     container_name: blackbox-scheduler
     restart: unless-stopped
+    privileged: true
     cap_add:
       - SYS_ADMIN
+    devices:
+      - /dev/fuse
     volumes:
       - ./scheduler/configs:/app/configs
-      - ./.env:/.env
-    # Передаем только нужные переменные из .env файла
-    environment:
-      # Настройки хранилища
-      - USE_MINIO=${USE_MINIO}
-      - DIFF_THRESHOLD=${DIFF_THRESHOLD}
-      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
-      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
-      - MINIO_USE_SSL=${MINIO_USE_SSL}
-      
-      # Настройки файловых серверов
-      - FILE_SERVER_TYPE=${FILE_SERVER_TYPE}
-      - FILE_SERVER_ENABLED=${FILE_SERVER_ENABLED}
-      - NFS_SERVER=${NFS_SERVER}
-      - NFS_SHARE_PATH=${NFS_SHARE_PATH}
-      - NFS_MOUNT_POINT=${NFS_MOUNT_POINT}
-      - SMB_SERVER=${SMB_SERVER}
-      - SMB_SHARE_NAME=${SMB_SHARE_NAME}
-      - SMB_MOUNT_POINT=${SMB_MOUNT_POINT}
-      - SMB_USERNAME=${SMB_USERNAME}
-      - SMB_PASSWORD=${SMB_PASSWORD}
-      - SMB_DOMAIN=${SMB_DOMAIN}
-      
-      # Настройки локального хранилища (папка с конфигами; в контейнере маппится ./scheduler/configs -> /app/configs)
-      - LOCAL_FS_ENABLED=${LOCAL_FS_ENABLED:-true}
-      - LOCAL_FS_PATH=${LOCAL_FS_PATH:-/app/configs}
-      
-      # Настройки производительности
-      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB}
-      - RETRY_ATTEMPTS=${RETRY_ATTEMPTS}
-      - TIMEOUT_SECONDS=${TIMEOUT_SECONDS}
-      # Интервал между сканированиями (сек); порт для принудительного сканирования
-      - SCAN_INTERVAL_SECONDS=${SCAN_INTERVAL_SECONDS:-30}
-      - SCHEDULER_TRIGGER_PORT=${SCHEDULER_TRIGGER_PORT:-9090}
+    env_file:
+      - .env
     depends_on:
       mysql-db:
         condition: service_healthy
@@ -100,18 +69,8 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
-    volumes: []
-    # Передаем только нужные переменные из .env файла
-    environment:
-      # Настройки хранилища
-      - USE_MINIO=${USE_MINIO}
-      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
-      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
-      - MINIO_USE_SSL=${MINIO_USE_SSL}
-      # URL планировщика для принудительного сканирования (кнопка на дашборде)
-      - SCHEDULER_TRIGGER_URL=${SCHEDULER_TRIGGER_URL:-http://scheduler:9090}
+    env_file:
+      - .env
     depends_on:
       mysql-db:
         condition: service_healthy
@@ -125,7 +84,7 @@ services:
       context: .
       dockerfile: nginx/Dockerfile
       args:
-        - REACT_APP_API_URL=${REACT_APP_API_URL:-/api}
+        - VITE_API_URL=${VITE_API_URL:-/api}
     container_name: blackbox-nginx
     restart: unless-stopped
     ports:

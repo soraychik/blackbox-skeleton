@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FixedSizeList } from 'react-window';
 import { useTheme } from '@mui/material/styles';
+import { Link } from '@mui/material';
 import {
   Box,
   Button,
@@ -141,7 +143,7 @@ const DiffRow = ({ line, theme, lineNumWidth }) => {
   );
 };
 
-const DiffStats = ({ stats, totalLines, theme }) => (
+const DiffStats = ({ stats, totalLines }) => (
   <Box
     sx={{
       display: 'flex',
@@ -168,8 +170,23 @@ const DiffStats = ({ stats, totalLines, theme }) => (
   </Box>
 );
 
-const ChangesTab = ({ embedded = false, initialDiffData = null, deviceName = null, version1Date = null, version2Date = null }) => {
+const ChangesTab = ({
+  embedded = false,
+  initialDiffData = null,
+  deviceName = null,
+  version1Date = null,
+  version2Date = null,
+  leftTitle = null,
+  rightTitle = null,
+  leftDeviceId = null,
+  rightDeviceId = null,
+  rightDeviceName = null,
+  leftVersionId = null,
+  rightVersionId = null,
+  onViewVersion = null,
+}) => {
   const theme = useTheme();
+  const navigate = useNavigate();
   const listContainerRef = useRef(null);
   const [listSize, setListSize] = useState({ width: 0, height: 400 });
   const [versions, setVersions] = useState([]);
@@ -435,7 +452,7 @@ const ChangesTab = ({ embedded = false, initialDiffData = null, deviceName = nul
             </Box>
           ) : (
             <>
-              <DiffStats stats={processedDiff.stats} totalLines={processedDiff.totalLines} theme={theme} />
+              <DiffStats stats={processedDiff.stats} totalLines={processedDiff.totalLines} />
 
               <Box
                 sx={{
@@ -446,11 +463,87 @@ const ChangesTab = ({ embedded = false, initialDiffData = null, deviceName = nul
                   borderColor: 'divider',
                 }}
               >
-                <Box sx={{ p: 1, fontSize: '0.875rem', fontWeight: 600, color: 'text.secondary' }}>
-                  {version1Info ? `${version1Info.device_hostname} (${formatDateTime(version1Info.created_at)})` : (deviceName && version1Date ? `${deviceName} (${version1Date})` : `Версия ${diffData.left_version_id}`)}
+                <Box sx={{ display: 'flex', minWidth: 0 }}>
+                  <Box
+                    sx={{
+                      width: processedDiff.lineNumWidth,
+                      minWidth: processedDiff.lineNumWidth,
+                      borderRight: 1,
+                      borderColor: 'divider',
+                      bgcolor: 'rgba(0,0,0,0.02)',
+                    }}
+                  />
+                  <Box sx={{ p: 1, fontSize: '0.875rem', fontWeight: 600, color: 'text.secondary', minWidth: 0 }}>
+                    {leftTitle ? (
+                      <Link
+                        component="button"
+                        onClick={() => onViewVersion?.(leftVersionId)}
+                        sx={{ color: 'inherit', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+                      >
+                        {leftTitle}
+                      </Link>
+                    ) : version1Info ? (
+                      <Link
+                        component="button"
+                        onClick={() => navigate(`/devices/${version1Info.id}`)}
+                        sx={{ color: 'inherit', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+                      >
+                        {version1Info.device_hostname}
+                      </Link>
+                    ) : leftDeviceId && deviceName ? (
+                      <Link
+                        component="button"
+                        onClick={() => navigate(`/devices/${leftDeviceId}`)}
+                        sx={{ color: 'inherit', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+                      >
+                        {deviceName}
+                      </Link>
+                    ) : (
+                      deviceName || `Версия ${diffData.left_version_id}`
+                    )}
+                    {version1Date && ` (${version1Date})`}
+                  </Box>
                 </Box>
-                <Box sx={{ p: 1, fontSize: '0.875rem', fontWeight: 600, color: 'text.secondary', borderLeft: { md: 1 }, borderColor: 'divider' }}>
-                  {version2Info ? `${version2Info.device_hostname} (${formatDateTime(version2Info.created_at)})` : (deviceName && version2Date ? `${deviceName} (${version2Date})` : `Версия ${diffData.right_version_id}`)}
+                <Box sx={{ display: 'flex', minWidth: 0, borderLeft: { md: 1 }, borderColor: 'divider' }}>
+                  <Box
+                    sx={{
+                      width: processedDiff.lineNumWidth,
+                      minWidth: processedDiff.lineNumWidth,
+                      borderRight: 1,
+                      borderColor: 'divider',
+                      bgcolor: 'rgba(0,0,0,0.02)',
+                    }}
+                  />
+                  <Box sx={{ p: 1, fontSize: '0.875rem', fontWeight: 600, color: 'text.secondary', minWidth: 0 }}>
+                    {rightTitle ? (
+                      <Link
+                        component="button"
+                        onClick={() => onViewVersion?.(rightVersionId)}
+                        sx={{ color: 'inherit', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+                      >
+                        {rightTitle}
+                      </Link>
+                    ) : version2Info ? (
+                      <Link
+                        component="button"
+                        onClick={() => navigate(`/devices/${version2Info.id}`)}
+                        sx={{ color: 'inherit', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+                      >
+                        {version2Info.device_hostname}
+                      </Link>
+                    ) : rightDeviceId && (rightDeviceName || deviceName) ? (
+                      <Link
+                        component="button"
+                        onClick={() => navigate(`/devices/${rightDeviceId}`)}
+                        sx={{ color: 'inherit', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+                      >
+                        {rightDeviceName || deviceName}
+                      </Link>
+                    ) : (
+                      deviceName || `Версия ${diffData.right_version_id}`
+                    )}
+                    {version2Date && ` (${version2Date})`}
+                  </Box>
                 </Box>
               </Box>
 

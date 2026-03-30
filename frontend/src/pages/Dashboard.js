@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -24,7 +24,7 @@ import {
   ChangeCircle as ChangeCircleIcon,
   PlayArrow as PlayArrowIcon,
 } from '@mui/icons-material';
-import { getDashboardStats, triggerScan } from '../utils/api';
+import { getDashboardStats, triggerScan, getScanStatus } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
 
 const StatCard = ({ title, value, icon, color, loading }) => (
@@ -65,6 +65,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [scanning, setScanning] = useState(false);
+  const lastFinishedAtRef = useRef(null);
   const [stats, setStats] = useState({
     totalDevices: 0,
     updatedToday: 0,
@@ -74,6 +75,13 @@ const Dashboard = () => {
 
   useEffect(() => {
     loadData();
+    pollScanStatus();
+
+    const timer = setInterval(() => {
+      pollScanStatus();
+    }, 3000);
+
+    return () => clearInterval(timer);
   }, []);
 
   const loadData = async () => {
@@ -95,7 +103,7 @@ const Dashboard = () => {
           lastChange: t.last_change,
         }))
       );
-    } catch (error) {
+    } catch {
       setError('Не удалось загрузить данные дашборда');
     } finally {
       setLoading(false);
@@ -110,8 +118,27 @@ const Dashboard = () => {
       await loadData();
     } catch (err) {
       setError(err.response?.data?.error || 'Не удалось запустить сканирование');
-    } finally {
       setScanning(false);
+    }
+  };
+
+  const pollScanStatus = async () => {
+    try {
+      const status = await getScanStatus();
+      const inProgress = Boolean(status?.in_progress);
+      const finishedAt = status?.last_finished_at || null;
+
+      if (finishedAt && finishedAt !== lastFinishedAtRef.current) {
+        const hadPreviousFinish = Boolean(lastFinishedAtRef.current);
+        lastFinishedAtRef.current = finishedAt;
+        if (hadPreviousFinish) {
+          await loadData();
+        }
+      }
+
+      setScanning(inProgress);
+    } catch {
+      // Не прерываем интерфейс из-за временной ошибки статуса сканирования.
     }
   };
 

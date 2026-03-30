@@ -49,7 +49,7 @@ func NewMinIOImprovedClient() (*MinIOImprovedClient, error) {
 		Secure: useSSL,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create MinIO client: %w", err)
+		return nil, fmt.Errorf("failed to create minio client: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -67,7 +67,7 @@ func NewMinIOImprovedClient() (*MinIOImprovedClient, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create bucket: %w", err)
 		}
-		log.Printf("Created bucket %s", bucketName)
+		log.Printf("created bucket %s", bucketName)
 	}
 
 	return &MinIOImprovedClient{
@@ -112,7 +112,7 @@ func (m *MinIOImprovedClient) UploadCompressed(ctx context.Context, objectName s
 		return 0, 0, fmt.Errorf("failed to upload compressed object %s: %w", objectName, err)
 	}
 
-	log.Printf("Successfully uploaded compressed object %s: %d -> %d bytes (%.1f%% reduction)",
+	log.Printf("uploaded compressed object %s: %d -> %d bytes (%.1f%% reduction)",
 		objectName, originalSize, compressedSize, float64(originalSize-compressedSize)/float64(originalSize)*100)
 
 	return originalSize, compressedSize, nil
@@ -194,7 +194,7 @@ func (m *MinIOImprovedClient) DeleteObject(ctx context.Context, objectName strin
 		return fmt.Errorf("failed to delete object %s: %w", objectName, err)
 	}
 
-	log.Printf("Successfully deleted object %s", objectName)
+	log.Printf("deleted object %s", objectName)
 	return nil
 }
 
@@ -205,7 +205,7 @@ func (m *MinIOImprovedClient) GetObjectInfo(ctx context.Context, objectName stri
 func (m *MinIOImprovedClient) GeneratePresignedURL(ctx context.Context, objectName string, expiry time.Duration) (string, error) {
 	url, err := m.Client.PresignedGetObject(ctx, m.Bucket, objectName, expiry, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate presigned URL for %s: %w", objectName, err)
+		return "", fmt.Errorf("failed to generate presigned url for %s: %w", objectName, err)
 	}
 
 	return url.String(), nil
@@ -228,7 +228,7 @@ func (m *MinIOImprovedClient) GetStorageStats(ctx context.Context, deviceID int)
 	for _, object := range objects {
 		info, err := m.GetObjectInfo(ctx, object)
 		if err != nil {
-			log.Printf("Warning: failed to get object info for %s: %v", object, err)
+			log.Printf("warning: failed to get object info for %s: %v", object, err)
 			continue
 		}
 

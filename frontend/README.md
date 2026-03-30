@@ -1,27 +1,12 @@
-Приложение будет доступно по адресу `http://localhost:3000`
+# React + Vite
 
-# Запуск через основной docker-compose.yml
-docker-compose up -d --build
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-# Или отдельно frontend
-docker-compose -f docker-compose.frontend.yml up -d --build
+Currently, two official plugins are available:
 
-Если ошибка "Network Error", проверить:
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
-1. API сервер запущен:
-   ```bash
-   docker ps | grep api-web
-   curl http://localhost:8080/health
-   ```
+## Expanding the ESLint configuration
 
-2. Правильный URL API: По умолчанию используется `http://localhost:8080`.
-   ```bash
-   docker-compose build frontend
-   docker-compose up -d frontend
-   ```
-
-3. CORS: API сервер должен разрешать запросы с frontend. В текущей конфигурации CORS настроен для всех источников (`*`).
-
-4. Порты: порты 3000 (frontend) и 8080 (API) не заняты другими приложениями.
-
-
+If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.

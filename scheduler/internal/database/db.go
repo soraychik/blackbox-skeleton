@@ -32,11 +32,11 @@ func NewDB() (*DB, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
 		dbUser, dbPassword, dbHost, dbPort, dbName)
 
-	log.Printf("Connecting to MySQL: %s", dsn)
+	log.Printf("connecting to mysql: %s", dsn)
 
 	conn, err := sql.Open("mysql", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %v", err)
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	conn.SetConnMaxLifetime(time.Minute * 3)
@@ -45,10 +45,10 @@ func NewDB() (*DB, error) {
 
 	if err := conn.Ping(); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("failed to ping database: %v", err)
+		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	log.Println("Successfully connected to MySQL database")
+	log.Println("successfully connected to mysql database")
 	return &DB{connection: conn}, nil
 }
 
@@ -66,7 +66,7 @@ func (db *DB) GetOrCreateDevice(hostname string) (*models.Device, error) {
 			hostname,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create device: %v", err)
+			return nil, fmt.Errorf("failed to create device: %w", err)
 		}
 
 		id, _ := result.LastInsertId()
@@ -75,13 +75,13 @@ func (db *DB) GetOrCreateDevice(hostname string) (*models.Device, error) {
 		device.CreatedAt = time.Now()
 		device.Enabled = true
 
-		log.Printf("Created new device: %s (ID: %d)", hostname, id)
+		log.Printf("created new device: %s (id: %d)", hostname, id)
 		return &device, nil
 	} else if err != nil {
-		return nil, fmt.Errorf("failed to get device: %v", err)
+		return nil, fmt.Errorf("failed to get device: %w", err)
 	}
 
-	log.Printf("Found existing device: %s (ID: %d)", hostname, device.ID)
+	log.Printf("found existing device: %s (id: %d)", hostname, device.ID)
 	return &device, nil
 }
 
@@ -96,7 +96,7 @@ func (db *DB) GetDeviceByID(id int) (*models.Device, error) {
 	if err == sql.ErrNoRows {
 		return nil, nil
 	} else if err != nil {
-		return nil, fmt.Errorf("failed to get device: %v", err)
+		return nil, fmt.Errorf("failed to get device: %w", err)
 	}
 
 	return &device, nil
@@ -107,7 +107,7 @@ func (db *DB) GetAllDevices() ([]models.Device, error) {
 		"SELECT id, hostname, mgmt_ip, vendor, model, tags, enabled, created_at FROM devices ORDER BY id",
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query devices: %v", err)
+		return nil, fmt.Errorf("failed to query devices: %w", err)
 	}
 	defer rows.Close()
 
@@ -115,7 +115,7 @@ func (db *DB) GetAllDevices() ([]models.Device, error) {
 	for rows.Next() {
 		var device models.Device
 		if err := rows.Scan(&device.ID, &device.Hostname, &device.MgmtIP, &device.Vendor, &device.Model, &device.Tags, &device.Enabled, &device.CreatedAt); err != nil {
-			return nil, fmt.Errorf("failed to scan device: %v", err)
+			return nil, fmt.Errorf("failed to scan device: %w", err)
 		}
 		devices = append(devices, device)
 	}
@@ -142,7 +142,7 @@ func (db *DB) GetLatestVersion(deviceID int) (*models.ConfigVersion, error) {
 	if err == sql.ErrNoRows {
 		return nil, nil
 	} else if err != nil {
-		return nil, fmt.Errorf("failed to get latest version: %v", err)
+		return nil, fmt.Errorf("failed to get latest version: %w", err)
 	}
 
 	if parentVersionID.Valid {
@@ -174,7 +174,7 @@ func (db *DB) GetVersionByID(versionID int) (*models.ConfigVersion, error) {
 	if err == sql.ErrNoRows {
 		return nil, nil
 	} else if err != nil {
-		return nil, fmt.Errorf("failed to get version by ID: %v", err)
+		return nil, fmt.Errorf("failed to get version by id: %w", err)
 	}
 
 	if parentVersionID.Valid {
@@ -200,7 +200,7 @@ func (db *DB) GetVersionsInChain(chainBaseID int) ([]models.ConfigVersion, error
 		chainBaseID, chainBaseID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query versions in chain: %v", err)
+		return nil, fmt.Errorf("failed to query versions in chain: %w", err)
 	}
 	defer rows.Close()
 
@@ -210,7 +210,7 @@ func (db *DB) GetVersionsInChain(chainBaseID int) ([]models.ConfigVersion, error
 		var parentVersionID, chainBase sql.NullInt32
 		if err := rows.Scan(&version.ID, &version.DeviceID, &version.VersionHash, &version.StorageType, &version.StoragePath,
 			&parentVersionID, &chainBase, &version.ChainPosition, &version.OriginalSize, &version.CompressedSize, &version.CreatedAt); err != nil {
-			return nil, fmt.Errorf("failed to scan version: %v", err)
+			return nil, fmt.Errorf("failed to scan version: %w", err)
 		}
 		if parentVersionID.Valid {
 			pid := int(parentVersionID.Int32)
@@ -241,7 +241,7 @@ func (db *DB) GetVersionsForDevice(deviceID int, limit int, offset int) ([]model
 
 	rows, err := db.connection.Query(query, deviceID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query versions: %v", err)
+		return nil, fmt.Errorf("failed to query versions: %w", err)
 	}
 	defer rows.Close()
 
@@ -251,7 +251,7 @@ func (db *DB) GetVersionsForDevice(deviceID int, limit int, offset int) ([]model
 		var parentVersionID, chainBaseID sql.NullInt32
 		if err := rows.Scan(&version.ID, &version.DeviceID, &version.VersionHash, &version.StorageType, &version.StoragePath,
 			&parentVersionID, &chainBaseID, &version.ChainPosition, &version.OriginalSize, &version.CompressedSize, &version.CreatedAt); err != nil {
-			return nil, fmt.Errorf("failed to scan version: %v", err)
+			return nil, fmt.Errorf("failed to scan version: %w", err)
 		}
 		if parentVersionID.Valid {
 			pid := int(parentVersionID.Int32)
@@ -294,7 +294,7 @@ func (db *DB) SaveVersion(
 		deviceID, versionHash, storageType, storagePath, parentID, baseID, chainPosition, originalSize, compressedSize,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to save version: %v", err)
+		return nil, fmt.Errorf("failed to save version: %w", err)
 	}
 
 	id, _ := result.LastInsertId()
@@ -313,7 +313,7 @@ func (db *DB) SaveVersion(
 		CreatedAt:       time.Now(),
 	}
 
-	log.Printf("Saved version %d for device %d: type=%s, chain_pos=%d, path=%s",
+	log.Printf("saved version %d for device %d: type=%s, chain_pos=%d, path=%s",
 		version.ID, deviceID, storageType, chainPosition, storagePath)
 	return version, nil
 }
@@ -325,7 +325,7 @@ func (db *DB) CreateJob(jobType string, status string, payloadJSON *string) (*mo
 		jobType, status, payloadJSON,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create job: %v", err)
+		return nil, fmt.Errorf("failed to create job: %w", err)
 	}
 
 	id, _ := result.LastInsertId()
@@ -347,7 +347,7 @@ func (db *DB) UpdateJobStatus(jobID int, status string, errorText *string) error
 		status, errorText, jobID,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to update job status: %v", err)
+		return fmt.Errorf("failed to update job status: %w", err)
 	}
 	return nil
 }
@@ -366,7 +366,7 @@ func (db *DB) GetDiffIndex(leftVersionID, rightVersionID int) (*models.DiffIndex
 	if err == sql.ErrNoRows {
 		return nil, nil
 	} else if err != nil {
-		return nil, fmt.Errorf("failed to get diff index: %v", err)
+		return nil, fmt.Errorf("failed to get diff index: %w", err)
 	}
 
 	return &diffIndex, nil
@@ -379,7 +379,7 @@ func (db *DB) SaveDiffIndex(leftVersionID, rightVersionID int, addedLines, remov
 		leftVersionID, rightVersionID, addedLines, removedLines, diffContent,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to save diff index: %v", err)
+		return nil, fmt.Errorf("failed to save diff index: %w", err)
 	}
 
 	id, _ := result.LastInsertId()
