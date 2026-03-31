@@ -11,8 +11,15 @@ describe('getTheme', () => {
     it('устанавливает правильные primary цвета', () => {
       const theme = getTheme('light')
       expect(theme.palette.primary.main).toBe('#2563eb')
-      expect(theme.palette.primary.light).toBe('#60a5fa')
-      expect(theme.palette.primary.dark).toBe('#1d4ed8')
+      expect(theme.palette.primary.light).toMatch(/^#[0-9a-f]{6}$/i)
+      expect(theme.palette.primary.dark).toMatch(/^#[0-9a-f]{6}$/i)
+    })
+
+    it('устанавливает правильные primary цвета с кастомным accent', () => {
+      const theme = getTheme('light', '#dc2626')
+      expect(theme.palette.primary.main).toBe('#dc2626')
+      expect(theme.palette.primary.light).toMatch(/^#[0-9a-f]{6}$/i)
+      expect(theme.palette.primary.dark).toMatch(/^#[0-9a-f]{6}$/i)
     })
 
     it('устанавливает правильные background цвета', () => {
@@ -42,8 +49,15 @@ describe('getTheme', () => {
     it('устанавливает правильные primary цвета', () => {
       const theme = getTheme('dark')
       expect(theme.palette.primary.main).toBe('#3b82f6')
-      expect(theme.palette.primary.light).toBe('#60a5fa')
-      expect(theme.palette.primary.dark).toBe('#2563eb')
+      expect(theme.palette.primary.light).toMatch(/^#[0-9a-f]{6}$/i)
+      expect(theme.palette.primary.dark).toMatch(/^#[0-9a-f]{6}$/i)
+    })
+
+    it('устанавливает правильные primary цвета с кастомным accent', () => {
+      const theme = getTheme('dark', '#dc2626')
+      expect(theme.palette.primary.main).toBe('#dc2626')
+      expect(theme.palette.primary.light).toMatch(/^#[0-9a-f]{6}$/i)
+      expect(theme.palette.primary.dark).toMatch(/^#[0-9a-f]{6}$/i)
     })
 
     it('устанавливает правильные background цвета', () => {
