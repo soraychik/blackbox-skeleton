@@ -1,6 +1,10 @@
 CREATE DATABASE IF NOT EXISTS blackbox CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 USE blackbox;
+SET NAMES utf8mb4;
+SET character_set_client = utf8mb4;
+SET character_set_connection = utf8mb4;
+SET character_set_results = utf8mb4;
 
 DROP TABLE IF EXISTS audit;
 DROP TABLE IF EXISTS diff_index;
@@ -30,7 +34,9 @@ INSERT INTO site_mappings (code, name) VALUES
     ('ekb', 'Екатеринбург'),
     ('ntg', 'Нижний Тагил'),
     ('kur', 'Каменск-Уральский'),
-    ('msc', 'Москва');
+    ('msc', 'Москва'),
+    ('tum', 'Тюмень'),
+    ('kurg', 'Курган');
 
 CREATE TABLE config_versions (
     id INT AUTO_INCREMENT PRIMARY KEY,

@@ -54,7 +54,6 @@ const Devices = () => {
     location: true,
     tags: false,
   });
-  const [showAll, setShowAll] = useState({ type: false, location: false });
 
   useEffect(() => {
     loadDevices();
@@ -159,24 +158,20 @@ const Devices = () => {
     navigate(`/devices/${deviceId}`);
   };
 
-  const renderFilterOptions = (group, options, key) => {
-    const visibleOptions = showAll[key] ? options : options.slice(0, 5);
+  const renderFilterOptions = (group, options) => {
+    const needsScroll = options.length > 5;
     return (
       <Box>
-        <Box sx={showAll[key] ? { maxHeight: 180, overflowY: 'auto', pr: 1 } : {}}>
-          {visibleOptions.map((option) => (
+        <Box sx={needsScroll ? { maxHeight: 180, overflowY: 'auto', pr: 1 } : {}}>
+          {options.map((option) => (
             <FormControlLabel
               key={option}
               control={<Checkbox checked={draftFilters[group].includes(option)} onChange={() => toggleDraftItem(group, option)} />}
               label={option}
+              sx={{ display: 'flex', width: '100%', mr: 0 }}
             />
           ))}
         </Box>
-        {options.length > 5 && !showAll[key] && (
-          <Button size="small" onClick={() => setShowAll((prev) => ({ ...prev, [key]: true }))}>
-            Показать все
-          </Button>
-        )}
       </Box>
     );
   };
@@ -230,8 +225,14 @@ const Devices = () => {
                 <Chip
                   key={chip.key}
                   label={chip.label}
-                  color="warning"
+                  color="primary"
                   onDelete={() => removeAppliedFilter(chip.group, chip.value)}
+                  sx={{
+                    bgcolor: 'primary.main',
+                    color: 'primary.contrastText',
+                    '& .MuiChip-deleteIcon': { color: 'primary.contrastText' },
+                    '& .MuiChip-deleteIcon:hover': { color: 'primary.contrastText' },
+                  }}
                 />
               ))}
               <Chip label="Сбросить фильтры" variant="outlined" onClick={clearAllFilters} />
@@ -324,7 +325,7 @@ const Devices = () => {
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Typography fontWeight={500}>Тип</Typography>
             </AccordionSummary>
-            <AccordionDetails>{renderFilterOptions('types', typeOptions, 'type')}</AccordionDetails>
+            <AccordionDetails>{renderFilterOptions('types', typeOptions)}</AccordionDetails>
           </Accordion>
 
           <Accordion expanded={expanded.vendor} onChange={(_, x) => setExpanded((p) => ({ ...p, vendor: x }))}>
@@ -349,7 +350,7 @@ const Devices = () => {
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Typography fontWeight={500}>Площадка</Typography>
             </AccordionSummary>
-            <AccordionDetails>{renderFilterOptions('locations', locationOptions, 'location')}</AccordionDetails>
+            <AccordionDetails>{renderFilterOptions('locations', locationOptions)}</AccordionDetails>
           </Accordion>
 
           <Accordion expanded={expanded.tags} onChange={(_, x) => setExpanded((p) => ({ ...p, tags: x }))}>
