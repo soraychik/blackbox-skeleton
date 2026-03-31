@@ -27,18 +27,10 @@ const ACCENT_COLORS = [
   { value: '#4f46e5', label: 'Индиго' },
 ];
 
-const SCALE_OPTIONS = [
-  { value: 0.8, label: '80%' },
-  { value: 0.9, label: '90%' },
-  { value: 1.0, label: '100%' },
-  { value: 1.1, label: '110%' },
-  { value: 1.2, label: '120%' },
-];
-
 const ScaleSelector = ({ value, onChange }) => {
-  const scalePercent = Math.round(value * 100);
-  const canDecrease = value > 0.8;
-  const canIncrease = value < 1.2;
+  const displayPercent = Math.round((value + 0.2) * 100);
+  const canDecrease = value > 0.6;
+  const canIncrease = value < 1.0;
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -48,7 +40,7 @@ const ScaleSelector = ({ value, onChange }) => {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
         <IconButton
           size="small"
-          onClick={() => onChange(Math.max(0.8, value - 0.1))}
+          onClick={() => onChange(Math.max(0.6, value - 0.1))}
           disabled={!canDecrease}
         >
           <RemoveIcon fontSize="small" />
@@ -61,11 +53,11 @@ const ScaleSelector = ({ value, onChange }) => {
             fontVariantNumeric: 'tabular-nums',
           }}
         >
-          {scalePercent}%
+          {displayPercent}%
         </Typography>
         <IconButton
           size="small"
-          onClick={() => onChange(Math.min(1.2, value + 0.1))}
+          onClick={() => onChange(Math.min(1.0, value + 0.1))}
           disabled={!canIncrease}
         >
           <AddIcon fontSize="small" />
