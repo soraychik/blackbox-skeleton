@@ -104,7 +104,90 @@ func initDB() error {
 
 	log.Println("successfully connected to mysql database")
 	dbPool = conn
+	if err := ensureSiteMappingsTable(dbPool); err != nil {
+		return err
+	}
 	return nil
+}
+
+func ensureSiteMappingsTable(db *sql.DB) error {
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS site_mappings (
+			code VARCHAR(32) PRIMARY KEY,
+			name VARCHAR(128) NOT NULL
+		) ENGINE=InnoDB
+	`); err != nil {
+		return fmt.Errorf("failed to ensure site_mappings table: %w", err)
+	}
+
+	defaultMappings := []struct {
+		code string
+		name string
+	}{
+		{code: "ekb", name: "Екатеринбург"},
+		{code: "ntg", name: "Нижний Тагил"},
+		{code: "kur", name: "Каменск-Уральский"},
+	}
+	for _, m := range defaultMappings {
+		if _, err := db.Exec(`
+			INSERT INTO site_mappings(code, name)
+			VALUES(?, ?)
+			ON DUPLICATE KEY UPDATE name = VALUES(name)
+		`, m.code, m.name); err != nil {
+			return fmt.Errorf("failed to seed site mapping %s: %w", m.code, err)
+		}
+	}
+	return nil
+}
+
+func loadSiteMappings(db *sql.DB) (map[string]string, error) {
+	rows, err := db.Query("SELECT code, name FROM site_mappings")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	mappings := make(map[string]string)
+	for rows.Next() {
+		var code, name string
+		if err := rows.Scan(&code, &name); err != nil {
+			return nil, err
+		}
+		mappings[strings.ToLower(strings.TrimSpace(code))] = name
+	}
+	return mappings, nil
+}
+
+func extractDeviceType(hostname string) string {
+	trimmed := strings.TrimSpace(hostname)
+	if trimmed == "" {
+		return ""
+	}
+	re := regexp.MustCompile(`^[A-Za-z]+`)
+	return strings.ToUpper(re.FindString(trimmed))
+}
+
+func extractSiteCode(hostname string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(hostname))
+	if trimmed == "" {
+		return ""
+	}
+	re := regexp.MustCompile(`\.([a-z0-9]+)-config$`)
+	match := re.FindStringSubmatch(trimmed)
+	if len(match) != 2 {
+		return ""
+	}
+	return match[1]
+}
+
+func enrichDeviceMetadata(device *Device, siteMappings map[string]string) {
+	device.DeviceType = extractDeviceType(device.Hostname)
+	device.SiteCode = extractSiteCode(device.Hostname)
+	if device.SiteCode != "" {
+		if location, ok := siteMappings[device.SiteCode]; ok {
+			device.Location = location
+		}
+	}
 }
 
 func NewDB() (*sql.DB, error) {
@@ -169,13 +252,16 @@ func getScanStatus(c *gin.Context) {
 }
 
 type Device struct {
-	ID        int       `json:"id"`
-	Hostname  string    `json:"hostname"`
-	MgmtIP    *string   `json:"mgmt_ip,omitempty"`
-	Vendor    *string   `json:"vendor,omitempty"`
-	Model     *string   `json:"model,omitempty"`
-	Enabled   bool      `json:"enabled"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         int       `json:"id"`
+	Hostname   string    `json:"hostname"`
+	MgmtIP     *string   `json:"mgmt_ip,omitempty"`
+	Vendor     *string   `json:"vendor,omitempty"`
+	Model      *string   `json:"model,omitempty"`
+	DeviceType string    `json:"device_type,omitempty"`
+	SiteCode   string    `json:"site_code,omitempty"`
+	Location   string    `json:"location,omitempty"`
+	Enabled    bool      `json:"enabled"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type ConfigVersion struct {
@@ -266,12 +352,18 @@ func getDevices(c *gin.Context) {
 	defer rows.Close()
 
 	var devices []Device
+	siteMappings, err := loadSiteMappings(db)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load site mappings"})
+		return
+	}
 	for rows.Next() {
 		var d Device
 		if err := rows.Scan(&d.ID, &d.Hostname, &d.MgmtIP, &d.Vendor, &d.Model, &d.Enabled, &d.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan device"})
 			return
 		}
+		enrichDeviceMetadata(&d, siteMappings)
 		devices = append(devices, d)
 	}
 
@@ -304,6 +396,12 @@ func getDeviceByID(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get device"})
 		return
 	}
+	siteMappings, err := loadSiteMappings(db)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load site mappings"})
+		return
+	}
+	enrichDeviceMetadata(&d, siteMappings)
 
 	c.JSON(http.StatusOK, gin.H{"device": d})
 }
@@ -451,6 +549,12 @@ func getDeviceVersions(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get device"})
 		return
 	}
+	siteMappings, err := loadSiteMappings(db)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load site mappings"})
+		return
+	}
+	enrichDeviceMetadata(&d, siteMappings)
 
 	fromStr := c.Query("from")
 	toStr := c.Query("to")
@@ -545,6 +649,11 @@ func getLatestVersionsForDevices(c *gin.Context) {
 		if err != nil {
 			return nil, err
 		}
+		siteMappings, mapErr := loadSiteMappings(db)
+		if mapErr != nil {
+			return nil, mapErr
+		}
+		enrichDeviceMetadata(&d, siteMappings)
 		return &d, nil
 	}
 

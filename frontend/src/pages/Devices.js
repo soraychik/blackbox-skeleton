@@ -160,6 +160,7 @@ const Devices = () => {
                 <TableHead>
                   <TableRow>
                     <TableCell>Имя устройства</TableCell>
+                    <TableCell>Тип</TableCell>
                     <TableCell>IP адрес</TableCell>
                     <TableCell>Вендор</TableCell>
                     <TableCell>Модель</TableCell>
@@ -178,6 +179,7 @@ const Devices = () => {
                       <TableCell>
                         <Typography fontWeight={500}>{device.hostname}</Typography>
                       </TableCell>
+                      <TableCell>{device.device_type || '-'}</TableCell>
                       <TableCell>{device.mgmt_ip || '-'}</TableCell>
                       <TableCell>{device.vendor || '-'}</TableCell>
                       <TableCell>{device.model || '-'}</TableCell>
@@ -197,7 +199,7 @@ const Devices = () => {
                   ))}
                   {paginatedDevices.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
                         <Typography color="text.secondary">
                           Устройства не найдены
                         </Typography>
