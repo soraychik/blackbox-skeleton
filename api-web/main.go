@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"blackbox-api/internal/storage"
+
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
@@ -94,8 +95,8 @@ func initDB() error {
 	}
 
 	conn.SetConnMaxLifetime(time.Minute * 3)
-	conn.SetMaxOpenConns(10)
-	conn.SetMaxIdleConns(10)
+	conn.SetMaxOpenConns(30)
+	conn.SetMaxIdleConns(30)
 
 	if err := conn.Ping(); err != nil {
 		conn.Close()
@@ -1409,9 +1410,10 @@ func postSearchChanges(c *gin.Context) {
 			diffLines := computeDiffLines(string(content1), string(content2))
 			var addedLines, removedLines []string
 			for _, ln := range diffLines {
-				if ln.Type == "added" {
+				switch ln.Type {
+				case "added":
 					addedLines = append(addedLines, ln.Content)
-				} else if ln.Type == "removed" {
+				case "removed":
 					removedLines = append(removedLines, ln.Content)
 				}
 			}
@@ -1517,7 +1519,6 @@ func postSearchCount(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query devices"})
 		return
 	}
-	defer rows.Close()
 
 	type deviceVersion struct {
 		deviceID    int
@@ -1542,40 +1543,76 @@ func postSearchCount(c *gin.Context) {
 		devices = append(devices, dv)
 	}
 
-	var results []SearchCountResult
+	rows.Close()
+	searchCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	type job struct{ dv deviceVersion }
+	type result struct {
+		res SearchCountResult
+		ok  bool
+	}
+
+	jobs := make(chan job, len(devices))
+	resultsCh := make(chan result, len(devices))
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				version, err := getVersionByID(db, j.dv.versionID)
+				if err != nil {
+					log.Printf("failed to get version %d: %v", j.dv.versionID, err)
+					resultsCh <- result{}
+					continue
+				}
+				content, err := getCachedVersionContent(searchCtx, db, minioClient, version)
+				if err != nil {
+					log.Printf("failed to get content for device %d: %v", j.dv.deviceID, err)
+					resultsCh <- result{}
+					continue
+				}
+
+				contentStr := string(content)
+				matches := re.FindAllStringIndex(contentStr, -1)
+				if len(matches) == 0 {
+					resultsCh <- result{}
+					continue
+				}
+
+				lines := strings.Split(contentStr, "\n")
+				snippetLines := findSnippetLines(lines, matches, 2)
+
+				resultsCh <- result{
+					ok: true,
+					res: SearchCountResult{
+						DeviceID:   j.dv.deviceID,
+						VersionID:  j.dv.versionID,
+						Hostname:   j.dv.hostname,
+						MgmtIP:     j.dv.mgmtIP,
+						MatchCount: len(matches),
+						Snippets:   snippetLines,
+					},
+				}
+			}
+		}()
+	}
 
 	for _, dv := range devices {
-		version, err := getVersionByID(db, dv.versionID)
-		if err != nil {
-			log.Printf("failed to get version %d: %v", dv.versionID, err)
-			continue
+		jobs <- job{dv: dv}
+	}
+	close(jobs)
+
+	wg.Wait()
+	close(resultsCh)
+
+	var results []SearchCountResult
+	for r := range resultsCh {
+		if r.ok {
+			results = append(results, r.res)
 		}
-
-		content, err := getCachedVersionContent(c.Request.Context(), db, minioClient, version)
-		if err != nil {
-			log.Printf("failed to get content for device %d: %v", dv.deviceID, err)
-			continue
-		}
-
-		contentStr := string(content)
-		matches := re.FindAllStringIndex(contentStr, -1)
-		matchCount := len(matches)
-
-		if matchCount == 0 {
-			continue
-		}
-
-		lines := strings.Split(contentStr, "\n")
-		snippetLines := findSnippetLines(lines, matches, 2)
-
-		results = append(results, SearchCountResult{
-			DeviceID:   dv.deviceID,
-			VersionID:  dv.versionID,
-			Hostname:   dv.hostname,
-			MgmtIP:     dv.mgmtIP,
-			MatchCount: matchCount,
-			Snippets:   snippetLines,
-		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"results": results})
