@@ -47,7 +47,7 @@ const SETTINGS_VERSION = 1;
 
 const defaultSettings = {
   darkMode: false,
-  scale: 1.0,
+  scale: 0.8,
   accentColor: '#2563eb',
   _version: SETTINGS_VERSION,
 };
