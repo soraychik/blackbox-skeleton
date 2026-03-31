@@ -1356,13 +1356,7 @@ func postSearchCount(c *gin.Context) {
 		return
 	}
 
-	flags := ""
-	if !req.CaseSensitive {
-		flags = "(?i)"
-	}
-	pattern := flags + req.Pattern
-
-	re, err := regexp.Compile(pattern)
+	re, err := compileSearchRegex(req.Pattern, req.CaseSensitive)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid pattern: %v", err)})
 		return
@@ -1476,6 +1470,25 @@ func postSearchCount(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"results": results})
+}
+
+// compileSearchRegex компилирует пользовательский ввод для поиска.
+// Сначала пытается использовать ввод как regexp, а при ошибке
+// автоматически переключается на буквальный поиск (escaped literal).
+func compileSearchRegex(input string, caseSensitive bool) (*regexp.Regexp, error) {
+	pattern := input
+	if !caseSensitive {
+		pattern = "(?i)" + pattern
+	}
+	if re, err := regexp.Compile(pattern); err == nil {
+		return re, nil
+	}
+
+	literal := regexp.QuoteMeta(input)
+	if !caseSensitive {
+		literal = "(?i)" + literal
+	}
+	return regexp.Compile(literal)
 }
 
 func findSnippetLines(lines []string, matches [][]int, contextLines int) []SnippetLine {
