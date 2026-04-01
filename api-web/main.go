@@ -1382,7 +1382,15 @@ func postSearchChanges(c *gin.Context) {
 	}
 	defer deviceRows.Close()
 
-	var results []DeviceChangeResult
+	type deviceRow struct {
+		deviceID int
+		hostname string
+		mgmtIP   *string
+		vendor   *string
+		model    *string
+	}
+
+	var deviceList []deviceRow
 	for deviceRows.Next() {
 		var deviceID int
 		var hostname string
@@ -1390,65 +1398,111 @@ func postSearchChanges(c *gin.Context) {
 		if err := deviceRows.Scan(&deviceID, &hostname, &mgmtIP, &vendor, &model); err != nil {
 			continue
 		}
-
-		versions, err := getDeviceVersionPairs(db, deviceID, req.FromDate, req.ToDate)
-		if err != nil {
-			log.Printf("getDeviceVersionPairs device %d: %v", deviceID, err)
-			continue
+		var ip, vdr, mdl *string
+		if mgmtIP.Valid {
+			ip = &mgmtIP.String
 		}
+		if vendor.Valid {
+			vdr = &vendor.String
+		}
+		if model.Valid {
+			mdl = &model.String
+		}
+		deviceList = append(deviceList, deviceRow{deviceID, hostname, ip, vdr, mdl})
+	}
+	deviceRows.Close()
 
-		var changeList []ChangeMatch
-		for _, pair := range versions {
-			content1, err := getCachedVersionContent(c.Request.Context(), db, minioClient, pair.Left)
-			if err != nil {
-				continue
-			}
-			content2, err := getCachedVersionContent(c.Request.Context(), db, minioClient, pair.Right)
-			if err != nil {
-				continue
-			}
-			diffLines := computeDiffLines(string(content1), string(content2))
-			var addedLines, removedLines []string
-			for _, ln := range diffLines {
-				switch ln.Type {
-				case "added":
-					addedLines = append(addedLines, ln.Content)
-				case "removed":
-					removedLines = append(removedLines, ln.Content)
+	searchCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	type job struct{ d deviceRow }
+	type result struct {
+		res DeviceChangeResult
+		ok  bool
+	}
+
+	jobs := make(chan job, len(deviceList))
+	resultsCh := make(chan result, len(deviceList))
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				versions, err := getDeviceVersionPairs(db, j.d.deviceID, req.FromDate, req.ToDate)
+				if err != nil {
+					log.Printf("getDeviceVersionPairs device %d: %v", j.d.deviceID, err)
+					resultsCh <- result{}
+					continue
+				}
+
+				var changeList []ChangeMatch
+				for _, pair := range versions {
+					content1, err := getCachedVersionContent(searchCtx, db, minioClient, pair.Left)
+					if err != nil {
+						continue
+					}
+					content2, err := getCachedVersionContent(searchCtx, db, minioClient, pair.Right)
+					if err != nil {
+						continue
+					}
+
+					diffLines := computeDiffLines(string(content1), string(content2))
+					var addedLines, removedLines []string
+					for _, ln := range diffLines {
+						switch ln.Type {
+						case "added":
+							addedLines = append(addedLines, ln.Content)
+						case "removed":
+							removedLines = append(removedLines, ln.Content)
+						}
+					}
+					addedOK := len(addedRegex) == 0 || anyLineMatches(addedLines, addedRegex)
+					removedOK := len(removedRegex) == 0 || anyLineMatches(removedLines, removedRegex)
+					if addedOK && removedOK {
+						changeList = append(changeList, ChangeMatch{
+							LeftVersionID:  pair.Left.ID,
+							RightVersionID: pair.Right.ID,
+							LeftDate:       pair.Left.CreatedAt.Format("2006-01-02"),
+							RightDate:      pair.Right.CreatedAt.Format("2006-01-02"),
+							AddedCount:     len(addedLines),
+							RemovedCount:   len(removedLines),
+						})
+					}
+				}
+
+				if len(changeList) > 0 {
+					resultsCh <- result{
+						ok: true,
+						res: DeviceChangeResult{
+							DeviceID:   j.d.deviceID,
+							Hostname:   j.d.hostname,
+							MgmtIP:     j.d.mgmtIP,
+							Vendor:     j.d.vendor,
+							Model:      j.d.model,
+							ChangeList: changeList,
+						},
+					}
+				} else {
+					resultsCh <- result{}
 				}
 			}
-			addedOK := len(addedRegex) == 0 || anyLineMatches(addedLines, addedRegex)
-			removedOK := len(removedRegex) == 0 || anyLineMatches(removedLines, removedRegex)
-			if addedOK && removedOK {
-				changeList = append(changeList, ChangeMatch{
-					LeftVersionID:  pair.Left.ID,
-					RightVersionID: pair.Right.ID,
-					LeftDate:       pair.Left.CreatedAt.Format("2006-01-02"),
-					RightDate:      pair.Right.CreatedAt.Format("2006-01-02"),
-					AddedCount:     len(addedLines),
-					RemovedCount:   len(removedLines),
-				})
-			}
-		}
-		if len(changeList) > 0 {
-			var ip, vdr, mdl *string
-			if mgmtIP.Valid {
-				ip = &mgmtIP.String
-			}
-			if vendor.Valid {
-				vdr = &vendor.String
-			}
-			if model.Valid {
-				mdl = &model.String
-			}
-			results = append(results, DeviceChangeResult{
-				DeviceID:   deviceID,
-				Hostname:   hostname,
-				MgmtIP:     ip,
-				Vendor:     vdr,
-				Model:      mdl,
-				ChangeList: changeList,
-			})
+		}()
+	}
+
+	for _, d := range deviceList {
+		jobs <- job{d: d}
+	}
+	close(jobs)
+
+	wg.Wait()
+	close(resultsCh)
+
+	var results []DeviceChangeResult
+	for r := range resultsCh {
+		if r.ok {
+			results = append(results, r.res)
 		}
 	}
 
