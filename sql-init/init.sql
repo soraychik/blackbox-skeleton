@@ -1,12 +1,17 @@
 CREATE DATABASE IF NOT EXISTS blackbox CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 USE blackbox;
+SET NAMES utf8mb4;
+SET character_set_client = utf8mb4;
+SET character_set_connection = utf8mb4;
+SET character_set_results = utf8mb4;
 
 DROP TABLE IF EXISTS audit;
 DROP TABLE IF EXISTS diff_index;
 DROP TABLE IF EXISTS jobs;
 DROP TABLE IF EXISTS config_versions;
 DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS site_mappings;
 DROP TABLE IF EXISTS devices;
 
 CREATE TABLE devices (
@@ -19,6 +24,19 @@ CREATE TABLE devices (
     enabled TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
+
+CREATE TABLE site_mappings (
+    code VARCHAR(32) PRIMARY KEY,
+    name VARCHAR(128) NOT NULL
+) ENGINE=InnoDB;
+
+INSERT INTO site_mappings (code, name) VALUES
+    ('ekb', 'Екатеринбург'),
+    ('ntg', 'Нижний Тагил'),
+    ('kur', 'Каменск-Уральский'),
+    ('msc', 'Москва'),
+    ('tum', 'Тюмень'),
+    ('kurg', 'Курган');
 
 CREATE TABLE config_versions (
     id INT AUTO_INCREMENT PRIMARY KEY,

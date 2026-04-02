@@ -1,29 +1,38 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
+  Button,
   Card,
   CardContent,
+  Checkbox,
+  Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControlLabel,
   Grid,
-  TextField,
-  Typography,
+  InputAdornment,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
-  TableRow,
   TablePagination,
-  InputAdornment,
-  Chip,
-  Button,
+  TableRow,
+  TextField,
+  Typography,
 } from '@mui/material';
 import {
-  Search as SearchIcon,
-  Clear as ClearIcon,
+  ExpandMore as ExpandMoreIcon,
   FilterList as FilterListIcon,
+  Search as SearchIcon,
 } from '@mui/icons-material';
 import { getDevices } from '../utils/api';
 
@@ -34,9 +43,16 @@ const Devices = () => {
   const [error, setError] = useState(null);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
-  const [filters, setFilters] = useState({
-    search: '',
-    vendor: '',
+  const [search, setSearch] = useState('');
+  const [filtersDialogOpen, setFiltersDialogOpen] = useState(false);
+  const [appliedFilters, setAppliedFilters] = useState({ types: [], locations: [] });
+  const [draftFilters, setDraftFilters] = useState({ types: [], locations: [] });
+  const [expanded, setExpanded] = useState({
+    type: true,
+    vendor: false,
+    model: false,
+    location: true,
+    tags: false,
   });
 
   useEffect(() => {
@@ -56,33 +72,85 @@ const Devices = () => {
     }
   };
 
+  const typeOptions = useMemo(
+    () => [...new Set(devices.map((d) => d.device_type).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru')),
+    [devices]
+  );
+
+  const locationOptions = useMemo(
+    () => [...new Set(devices.map((d) => d.location).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru')),
+    [devices]
+  );
+
   const filteredDevices = useMemo(() => {
     return devices.filter((device) => {
       const matchesSearch =
-        !filters.search ||
-        device.hostname?.toLowerCase().includes(filters.search.toLowerCase()) ||
-        device.mgmt_ip?.toLowerCase().includes(filters.search.toLowerCase());
+        !search ||
+        device.hostname?.toLowerCase().includes(search.toLowerCase()) ||
+        device.mgmt_ip?.toLowerCase().includes(search.toLowerCase());
 
-      const matchesVendor =
-        !filters.vendor ||
-        device.vendor?.toLowerCase().includes(filters.vendor.toLowerCase());
+      const matchesType =
+        appliedFilters.types.length === 0 ||
+        appliedFilters.types.includes(device.device_type);
 
-      return matchesSearch && matchesVendor;
+      const matchesLocation =
+        appliedFilters.locations.length === 0 ||
+        appliedFilters.locations.includes(device.location);
+
+      return matchesSearch && matchesType && matchesLocation;
     });
-  }, [devices, filters]);
+  }, [devices, search, appliedFilters]);
 
   const paginatedDevices = useMemo(() => {
     const start = page * rowsPerPage;
     return filteredDevices.slice(start, start + rowsPerPage);
   }, [filteredDevices, page, rowsPerPage]);
 
-  const handleFilterChange = (field, value) => {
-    setFilters((prev) => ({ ...prev, [field]: value }));
+  const selectedFilterChips = useMemo(
+    () => [
+      ...appliedFilters.types.map((value) => ({ key: `type:${value}`, label: `Тип: ${value}`, group: 'types', value })),
+      ...appliedFilters.locations.map((value) => ({ key: `location:${value}`, label: `Площадка: ${value}`, group: 'locations', value })),
+    ],
+    [appliedFilters]
+  );
+
+  const openFiltersDialog = () => {
+    setDraftFilters(appliedFilters);
+    setFiltersDialogOpen(true);
+  };
+
+  const applyFilters = () => {
+    setAppliedFilters(draftFilters);
+    setFiltersDialogOpen(false);
     setPage(0);
   };
 
-  const clearFilters = () => {
-    setFilters({ search: '', vendor: '' });
+  const clearDraftFilters = () => {
+    setDraftFilters({ types: [], locations: [] });
+  };
+
+  const clearAllFilters = () => {
+    setSearch('');
+    setAppliedFilters({ types: [], locations: [] });
+    setDraftFilters({ types: [], locations: [] });
+    setPage(0);
+  };
+
+  const toggleDraftItem = (group, value) => {
+    setDraftFilters((prev) => {
+      const hasValue = prev[group].includes(value);
+      return {
+        ...prev,
+        [group]: hasValue ? prev[group].filter((item) => item !== value) : [...prev[group], value],
+      };
+    });
+  };
+
+  const removeAppliedFilter = (group, value) => {
+    setAppliedFilters((prev) => ({
+      ...prev,
+      [group]: prev[group].filter((item) => item !== value),
+    }));
     setPage(0);
   };
 
@@ -90,7 +158,23 @@ const Devices = () => {
     navigate(`/devices/${deviceId}`);
   };
 
-  const hasActiveFilters = filters.search || filters.vendor;
+  const renderFilterOptions = (group, options) => {
+    const needsScroll = options.length > 5;
+    return (
+      <Box>
+        <Box sx={needsScroll ? { maxHeight: 180, overflowY: 'auto', pr: 1 } : {}}>
+          {options.map((option) => (
+            <FormControlLabel
+              key={option}
+              control={<Checkbox checked={draftFilters[group].includes(option)} onChange={() => toggleDraftItem(group, option)} />}
+              label={option}
+              sx={{ display: 'flex', width: '100%', mr: 0 }}
+            />
+          ))}
+        </Box>
+      </Box>
+    );
+  };
 
   return (
     <Box>
@@ -110,13 +194,16 @@ const Devices = () => {
       <Card sx={{ mb: 3 }}>
         <CardContent sx={{ pb: '16px !important' }}>
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
                 size="small"
                 placeholder="Поиск по имени или IP..."
-                value={filters.search}
-                onChange={(e) => handleFilterChange('search', e.target.value)}
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(0);
+                }}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -127,24 +214,30 @@ const Devices = () => {
               />
             </Grid>
             <Grid item xs={12} md={3}>
-              <TextField
-                fullWidth
-                size="small"
-                placeholder="Вендор (Cisco, Juniper...)"
-                value={filters.vendor}
-                onChange={(e) => handleFilterChange('vendor', e.target.value)}
-              />
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <Button
-                variant="outlined"
-                startIcon={hasActiveFilters ? <ClearIcon /> : <FilterListIcon />}
-                onClick={hasActiveFilters ? clearFilters : undefined}
-              >
-                {hasActiveFilters ? 'Очистить' : 'Фильтры'}
+              <Button variant="outlined" startIcon={<FilterListIcon />} onClick={openFiltersDialog}>
+                Фильтры
               </Button>
             </Grid>
           </Grid>
+          {selectedFilterChips.length > 0 && (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
+              {selectedFilterChips.map((chip) => (
+                <Chip
+                  key={chip.key}
+                  label={chip.label}
+                  color="primary"
+                  onDelete={() => removeAppliedFilter(chip.group, chip.value)}
+                  sx={{
+                    bgcolor: 'primary.main',
+                    color: 'primary.contrastText',
+                    '& .MuiChip-deleteIcon': { color: 'primary.contrastText' },
+                    '& .MuiChip-deleteIcon:hover': { color: 'primary.contrastText' },
+                  }}
+                />
+              ))}
+              <Chip label="Сбросить фильтры" variant="outlined" onClick={clearAllFilters} />
+            </Box>
+          )}
         </CardContent>
       </Card>
 
@@ -160,6 +253,7 @@ const Devices = () => {
                 <TableHead>
                   <TableRow>
                     <TableCell>Имя устройства</TableCell>
+                    <TableCell>Тип</TableCell>
                     <TableCell>IP адрес</TableCell>
                     <TableCell>Вендор</TableCell>
                     <TableCell>Модель</TableCell>
@@ -178,6 +272,7 @@ const Devices = () => {
                       <TableCell>
                         <Typography fontWeight={500}>{device.hostname}</Typography>
                       </TableCell>
+                      <TableCell>{device.device_type || '-'}</TableCell>
                       <TableCell>{device.mgmt_ip || '-'}</TableCell>
                       <TableCell>{device.vendor || '-'}</TableCell>
                       <TableCell>{device.model || '-'}</TableCell>
@@ -197,10 +292,8 @@ const Devices = () => {
                   ))}
                   {paginatedDevices.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
-                        <Typography color="text.secondary">
-                          Устройства не найдены
-                        </Typography>
+                      <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                        <Typography color="text.secondary">Устройства не найдены</Typography>
                       </TableCell>
                     </TableRow>
                   )}
@@ -224,6 +317,60 @@ const Devices = () => {
           </>
         )}
       </Card>
+
+      <Dialog open={filtersDialogOpen} onClose={() => setFiltersDialogOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Фильтры</DialogTitle>
+        <DialogContent dividers sx={{ maxHeight: '60vh' }}>
+          <Accordion expanded={expanded.type} onChange={(_, x) => setExpanded((p) => ({ ...p, type: x }))}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography fontWeight={500}>Тип</Typography>
+            </AccordionSummary>
+            <AccordionDetails>{renderFilterOptions('types', typeOptions)}</AccordionDetails>
+          </Accordion>
+
+          <Accordion expanded={expanded.vendor} onChange={(_, x) => setExpanded((p) => ({ ...p, vendor: x }))}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography fontWeight={500}>Вендор</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Typography color="text.secondary">Скоро будет доступно</Typography>
+            </AccordionDetails>
+          </Accordion>
+
+          <Accordion expanded={expanded.model} onChange={(_, x) => setExpanded((p) => ({ ...p, model: x }))}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography fontWeight={500}>Модель</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Typography color="text.secondary">Скоро будет доступно</Typography>
+            </AccordionDetails>
+          </Accordion>
+
+          <Accordion expanded={expanded.location} onChange={(_, x) => setExpanded((p) => ({ ...p, location: x }))}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography fontWeight={500}>Площадка</Typography>
+            </AccordionSummary>
+            <AccordionDetails>{renderFilterOptions('locations', locationOptions)}</AccordionDetails>
+          </Accordion>
+
+          <Accordion expanded={expanded.tags} onChange={(_, x) => setExpanded((p) => ({ ...p, tags: x }))}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography fontWeight={500}>Теги</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Typography color="text.secondary">Скоро будет доступно</Typography>
+            </AccordionDetails>
+          </Accordion>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, flexDirection: 'column', alignItems: 'stretch', gap: 1 }}>
+          <Button variant="contained" onClick={applyFilters}>
+            Применить
+          </Button>
+          <Button variant="text" onClick={clearDraftFilters}>
+            Сбросить фильтры
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

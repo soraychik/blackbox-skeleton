@@ -87,7 +87,9 @@ export const getVersionDiff = async (versionId1, versionId2) => {
 };
 
 export const searchPattern = async (params) => {
-  const response = await api.post('/search/count', params);
+  const response = await api.post('/search/count', params, {
+    timeout: 120000, // 2 минуты
+  });
   return response.data.results || [];
 };
 
@@ -128,7 +130,9 @@ export const exportConfigByDate = async (deviceId, date) => {
 };
 
 export const searchChanges = async (body) => {
-  const response = await api.post('/search/changes', body);
+  const response = await api.post('/search/changes', body, {
+    timeout: 120000, // УДАЛИТЬ ПОТОМ. Костыль
+  });
   return response.data;
 };
 

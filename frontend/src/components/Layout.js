@@ -42,9 +42,66 @@ const menuItems = [
   { text: 'Настройки', icon: <SettingsIcon />, path: '/settings' },
 ];
 
-export const ThemeToggleContext = React.createContext();
+const SETTINGS_KEY = 'app_settings';
+const SETTINGS_VERSION = 1;
 
-const Layout = ({ darkMode, setDarkMode }) => {
+const defaultSettings = {
+  darkMode: false,
+  scale: 0.8,
+  accentColor: '#2563eb',
+  _version: SETTINGS_VERSION,
+};
+
+export const SettingsContext = React.createContext();
+
+const loadSettings = () => {
+  try {
+    const stored = localStorage.getItem(SETTINGS_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return { ...defaultSettings, ...parsed };
+    }
+  } catch (e) {
+    console.warn('Failed to load settings from localStorage:', e);
+  }
+  return defaultSettings;
+};
+
+const saveSettings = (settings) => {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, _version: SETTINGS_VERSION }));
+  } catch (e) {
+    console.warn('Failed to save settings to localStorage:', e);
+  }
+};
+
+const Layout = ({ settings: externalSettings, onSettingsChange }) => {
+  const [internalSettings, setInternalSettings] = React.useState(loadSettings);
+  const settings = externalSettings || internalSettings;
+  const setSettings = React.useCallback((updater) => {
+    const newSettings = typeof updater === 'function' ? updater(settings) : updater;
+    if (externalSettings && onSettingsChange) {
+      onSettingsChange(newSettings);
+    } else {
+      setInternalSettings(newSettings);
+    }
+    saveSettings(newSettings);
+  }, [settings, externalSettings, onSettingsChange]);
+
+  const darkMode = settings.darkMode;
+  const setDarkMode = React.useCallback((value) => {
+    setSettings((prev) => ({ ...prev, darkMode: typeof value === 'function' ? value(prev.darkMode) : value }));
+  }, [setSettings]);
+
+  const scale = settings.scale;
+  const setScale = React.useCallback((value) => {
+    setSettings((prev) => ({ ...prev, scale: typeof value === 'function' ? value(prev.scale) : value }));
+  }, [setSettings]);
+
+  const accentColor = settings.accentColor;
+  const setAccentColor = React.useCallback((value) => {
+    setSettings((prev) => ({ ...prev, accentColor: value }));
+  }, [setSettings]);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -74,10 +131,6 @@ const Layout = ({ darkMode, setDarkMode }) => {
     setUserMenuOpen((prev) => !prev);
   };
 
-  const handleMenuClose = () => {
-    setUserMenuOpen(false);
-  };
-
   const handleNavigation = (path) => {
     navigate(path);
     if (isMobile) {
@@ -86,7 +139,7 @@ const Layout = ({ darkMode, setDarkMode }) => {
   };
 
   const handleThemeToggle = () => {
-    setDarkMode(!darkMode);
+    setDarkMode((prev) => !prev);
   };
 
   const handleLogout = () => {
@@ -139,7 +192,7 @@ const Layout = ({ darkMode, setDarkMode }) => {
   );
 
   return (
-    <ThemeToggleContext.Provider value={{ darkMode, setDarkMode }}>
+    <SettingsContext.Provider value={{ darkMode, setDarkMode, scale, setScale, accentColor, setAccentColor }}>
       <Box sx={{ display: 'flex' }}>
         <CssBaseline />
         <AppBar
@@ -239,7 +292,7 @@ const Layout = ({ darkMode, setDarkMode }) => {
           <Outlet />
         </Box>
       </Box>
-    </ThemeToggleContext.Provider>
+    </SettingsContext.Provider>
   );
 };
 
