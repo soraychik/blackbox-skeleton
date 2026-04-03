@@ -17,6 +17,12 @@ const api = axios.create({
   timeout: 10000,
 });
 
+let navigateFn = null;
+
+export const setNavigate = (fn) => {
+  navigateFn = fn;
+};
+
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -34,7 +40,11 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/login';
+      if (navigateFn) {
+        navigateFn('/login');
+      } else {
+        window.location.href = '/login';
+      }
     }
     if (error.code === 'ECONNABORTED') {
       error.message = 'Превышено время ожидания ответа от сервера';

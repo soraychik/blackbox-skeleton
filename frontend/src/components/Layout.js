@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import {
   AppBar,
@@ -42,66 +42,31 @@ const menuItems = [
   { text: 'Настройки', icon: <SettingsIcon />, path: '/settings' },
 ];
 
-const SETTINGS_KEY = 'app_settings';
-const SETTINGS_VERSION = 1;
-
-const defaultSettings = {
-  darkMode: false,
-  scale: 0.8,
-  accentColor: '#2563eb',
-  _version: SETTINGS_VERSION,
-};
-
 export const SettingsContext = React.createContext();
 
-const loadSettings = () => {
-  try {
-    const stored = localStorage.getItem(SETTINGS_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      return { ...defaultSettings, ...parsed };
-    }
-  } catch (e) {
-    console.warn('Failed to load settings from localStorage:', e);
-  }
-  return defaultSettings;
-};
-
-const saveSettings = (settings) => {
-  try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, _version: SETTINGS_VERSION }));
-  } catch (e) {
-    console.warn('Failed to save settings to localStorage:', e);
-  }
-};
-
-const Layout = ({ settings: externalSettings, onSettingsChange }) => {
-  const [internalSettings, setInternalSettings] = React.useState(loadSettings);
-  const settings = externalSettings || internalSettings;
-  const setSettings = React.useCallback((updater) => {
-    const newSettings = typeof updater === 'function' ? updater(settings) : updater;
-    if (externalSettings && onSettingsChange) {
-      onSettingsChange(newSettings);
-    } else {
-      setInternalSettings(newSettings);
-    }
-    saveSettings(newSettings);
-  }, [settings, externalSettings, onSettingsChange]);
-
+const Layout = ({ settings, onSettingsChange }) => {
   const darkMode = settings.darkMode;
-  const setDarkMode = React.useCallback((value) => {
-    setSettings((prev) => ({ ...prev, darkMode: typeof value === 'function' ? value(prev.darkMode) : value }));
-  }, [setSettings]);
-
   const scale = settings.scale;
-  const setScale = React.useCallback((value) => {
-    setSettings((prev) => ({ ...prev, scale: typeof value === 'function' ? value(prev.scale) : value }));
-  }, [setSettings]);
-
   const accentColor = settings.accentColor;
-  const setAccentColor = React.useCallback((value) => {
-    setSettings((prev) => ({ ...prev, accentColor: value }));
-  }, [setSettings]);
+
+  const setDarkMode = useCallback((value) => {
+    onSettingsChange((prev) => ({
+      ...prev,
+      darkMode: typeof value === 'function' ? value(prev.darkMode) : value,
+    }));
+  }, [onSettingsChange]);
+
+  const setScale = useCallback((value) => {
+    onSettingsChange((prev) => ({
+      ...prev,
+      scale: typeof value === 'function' ? value(prev.scale) : value,
+    }));
+  }, [onSettingsChange]);
+
+  const setAccentColor = useCallback((value) => {
+    onSettingsChange((prev) => ({ ...prev, accentColor: value }));
+  }, [onSettingsChange]);
+
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
