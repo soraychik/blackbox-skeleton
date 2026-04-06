@@ -15,6 +15,7 @@ import {
   Typography,
   Avatar,
   Paper,
+  Tooltip,
   useTheme,
   useMediaQuery,
 } from '@mui/material';
@@ -29,9 +30,11 @@ import {
   LightMode as LightModeIcon,
   Logout as LogoutIcon,
   Settings as SettingsIcon,
+  MenuOpen as MenuOpenIcon,
 } from '@mui/icons-material';
 
-const drawerWidth = 260;
+const DRAWER_WIDTH = 260;
+const DRAWER_WIDTH_COLLAPSED = 72;
 
 const menuItems = [
   { text: 'Дашборд', icon: <DashboardIcon />, path: '/' },
@@ -71,6 +74,9 @@ const Layout = ({ settings, onSettingsChange }) => {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem('sidebarCollapsed') === 'true'
+  );
   const userMenuRef = useRef(null);
 
   const navigate = useNavigate();
@@ -86,6 +92,14 @@ const Layout = ({ settings, onSettingsChange }) => {
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, [userMenuOpen]);
+
+  useEffect(() => {
+    localStorage.setItem('sidebarCollapsed', sidebarCollapsed);
+  }, [sidebarCollapsed]);
+
+  const handleSidebarToggle = () => {
+    setSidebarCollapsed((prev) => !prev);
+  };
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -121,35 +135,65 @@ const Layout = ({ settings, onSettingsChange }) => {
   const drawer = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Toolbar>
-        <Typography variant="h6" noWrap component="div" sx={{ fontWeight: 700, color: 'primary.main' }}>
+        <Typography 
+          variant="h6" 
+          noWrap 
+          component="div" 
+          sx={{ 
+            fontWeight: 700, 
+            color: 'primary.main',
+            display: sidebarCollapsed ? 'none' : 'block',
+          }}
+        >
           Black Box
         </Typography>
       </Toolbar>
-      <List sx={{ px: 2, flexGrow: 1 }}>
+      <List sx={{ px: sidebarCollapsed ? 1 : 2, flexGrow: 1 }}>
         {menuItems.map((item) => (
           <ListItem key={item.text} disablePadding sx={{ mb: 0.5 }}>
-            <ListItemButton
-              selected={location.pathname === item.path}
-              onClick={() => handleNavigation(item.path)}
-              sx={{
-                borderRadius: 2,
-                '&.Mui-selected': {
-                  backgroundColor: 'primary.main',
-                  color: 'white',
-                  '&:hover': {
-                    backgroundColor: 'primary.dark',
-                  },
-                  '& .MuiListItemIcon-root': {
+            <Tooltip title={item.text} placement="right" arrow>
+              <ListItemButton
+                selected={location.pathname === item.path}
+                onClick={() => handleNavigation(item.path)}
+                sx={{
+                  borderRadius: 2,
+                  minHeight: 48,
+                  justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                  px: 2.5,
+                  '&.Mui-selected': {
+                    backgroundColor: 'primary.main',
                     color: 'white',
+                    '&:hover': {
+                      backgroundColor: 'primary.dark',
+                    },
+                    '& .MuiListItemIcon-root': {
+                      color: 'white',
+                    },
                   },
-                },
-              }}
-            >
-              <ListItemIcon sx={{ minWidth: 40, color: location.pathname === item.path ? 'white' : 'text.secondary' }}>
-                {item.icon}
-              </ListItemIcon>
-              <ListItemText primary={item.text} />
-            </ListItemButton>
+                }}
+              >
+                <ListItemIcon 
+                  sx={{ 
+                    minWidth: 0, 
+                    mr: sidebarCollapsed ? 0 : 2,
+                    justifyContent: 'center',
+                    color: location.pathname === item.path ? 'white' : 'text.secondary',
+                  }}
+                >
+                  {item.icon}
+                </ListItemIcon>
+                <ListItemText 
+                  primary={item.text} 
+                  sx={{ 
+                    opacity: sidebarCollapsed ? 0 : 1,
+                    transition: theme.transitions.create('opacity', {
+                      easing: theme.transitions.easing.sharp,
+                      duration: theme.transitions.duration.enteringScreen,
+                    }),
+                  }} 
+                />
+              </ListItemButton>
+            </Tooltip>
           </ListItem>
         ))}
       </List>
@@ -163,13 +207,17 @@ const Layout = ({ settings, onSettingsChange }) => {
         <AppBar
           position="fixed"
           sx={{
-            width: { md: `calc(100% - ${drawerWidth}px)` },
-            ml: { md: `${drawerWidth}px` },
+            width: { md: `calc(100% - ${sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH}px)` },
+            ml: { md: `${sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH}px` },
             boxShadow: 'none',
             borderBottom: 1,
             borderColor: 'divider',
             bgcolor: 'background.paper',
             color: 'text.primary',
+            transition: theme.transitions.create(['width', 'margin'], {
+              easing: theme.transitions.easing.sharp,
+              duration: theme.transitions.duration.enteringScreen,
+            }),
           }}
         >
           <Toolbar>
@@ -180,6 +228,17 @@ const Layout = ({ settings, onSettingsChange }) => {
               sx={{ mr: 2, display: { md: 'none' } }}
             >
               <MenuIcon />
+            </IconButton>
+            <IconButton
+              onClick={handleSidebarToggle}
+              sx={{
+                mr: 2,
+                display: { xs: 'none', md: 'flex' },
+                transition: 'transform 0.3s',
+                transform: sidebarCollapsed ? 'rotate(180deg)' : 'rotate(0deg)',
+              }}
+            >
+              <MenuOpenIcon />
             </IconButton>
             <Box sx={{ flexGrow: 1 }} />
             <IconButton onClick={handleThemeToggle} sx={{ mr: 1 }}>
@@ -218,7 +277,7 @@ const Layout = ({ settings, onSettingsChange }) => {
         </AppBar>
         <Box
           component="nav"
-          sx={{ width: { md: drawerWidth }, flexShrink: { md: 0 } }}
+          sx={{ width: { md: sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH }, flexShrink: { md: 0 } }}
         >
           <Drawer
             variant="temporary"
@@ -227,7 +286,7 @@ const Layout = ({ settings, onSettingsChange }) => {
             ModalProps={{ keepMounted: true }}
             sx={{
               display: { xs: 'block', md: 'none' },
-              '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+              '& .MuiDrawer-paper': { boxSizing: 'border-box', width: DRAWER_WIDTH },
             }}
           >
             {drawer}
@@ -236,7 +295,17 @@ const Layout = ({ settings, onSettingsChange }) => {
             variant="permanent"
             sx={{
               display: { xs: 'none', md: 'block' },
-              '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth, borderRight: 1, borderColor: 'divider' },
+              '& .MuiDrawer-paper': {
+                boxSizing: 'border-box',
+                width: sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH,
+                borderRight: 1,
+                borderColor: 'divider',
+                transition: theme.transitions.create('width', {
+                  easing: theme.transitions.easing.sharp,
+                  duration: theme.transitions.duration.enteringScreen,
+                }),
+                overflowX: 'hidden',
+              },
             }}
             open
           >
@@ -248,9 +317,13 @@ const Layout = ({ settings, onSettingsChange }) => {
           sx={{
             flexGrow: 1,
             p: 3,
-            width: { md: `calc(100% - ${drawerWidth}px)` },
+            width: { md: `calc(100% - ${sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH}px)` },
             minHeight: '100vh',
             bgcolor: 'background.default',
+            transition: theme.transitions.create('width', {
+              easing: theme.transitions.easing.sharp,
+              duration: theme.transitions.duration.enteringScreen,
+            }),
           }}
         >
           <Toolbar />
