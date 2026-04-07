@@ -9,13 +9,13 @@ import {
   Typography,
   Chip,
   FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   CircularProgress,
+  Autocomplete,
+  TextField,
 } from '@mui/material';
 import { getVersions, getVersionDiff } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
+import ListboxComponent from '../utils/VirtualListbox';
 
 const ROW_HEIGHT = 20;
 const DIFF_LIST_HEIGHT_VH = 55;
@@ -351,58 +351,50 @@ const ChangesTab = ({
             </Typography>
           </Box>
 
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-              gap: 2.5,
-              mb: 2.5,
-            }}
-          >
-            <FormControl fullWidth>
-              <InputLabel id="version1-label">Версия 1 (левая)</InputLabel>
-              <Select
-                labelId="version1-label"
-                value={selectedVersion1 || ''}
-                label="Версия 1 (левая)"
-                onChange={(e) => setSelectedVersion1(e.target.value)}
-              >
-                <MenuItem value="">Выберите версию...</MenuItem>
-                {versions.map((version) => (
-                  <MenuItem key={version.id} value={version.id}>
-                    {version.device_hostname} - {formatDateTime(version.created_at)}
-                  </MenuItem>
-                ))}
-              </Select>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+                gap: 2.5,
+                mb: 2.5,
+              }}
+            >
+              <Autocomplete
+                ListboxComponent={ListboxComponent}
+                options={versions}
+                value={versions.find(v => v.id === selectedVersion1) || null}
+                onChange={(_, newValue) => setSelectedVersion1(newValue?.id || null)}
+                getOptionLabel={(option) => `${option.device_hostname} - ${formatDateTime(option.created_at)}`}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                renderInput={(params) => (
+                  <TextField {...params} label="Версия 1 (левая)" size="small" />
+                )}
+                disableClearable
+              />
               {version1Info && (
                 <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1, fontSize: '0.75rem' }}>
                   {version1Info.device_hostname} | Создано: {formatDateTime(version1Info.created_at)}
                 </Typography>
               )}
-            </FormControl>
 
-            <FormControl fullWidth>
-              <InputLabel id="version2-label">Версия 2 (правая)</InputLabel>
-              <Select
-                labelId="version2-label"
-                value={selectedVersion2 || ''}
-                label="Версия 2 (правая)"
-                onChange={(e) => setSelectedVersion2(e.target.value)}
-              >
-                <MenuItem value="">Выберите версию...</MenuItem>
-                {versions.map((version) => (
-                  <MenuItem key={version.id} value={version.id}>
-                    {version.device_hostname} - {formatDateTime(version.created_at)}
-                  </MenuItem>
-                ))}
-              </Select>
+              <Autocomplete
+                ListboxComponent={ListboxComponent}
+                options={versions}
+                value={versions.find(v => v.id === selectedVersion2) || null}
+                onChange={(_, newValue) => setSelectedVersion2(newValue?.id || null)}
+                getOptionLabel={(option) => `${option.device_hostname} - ${formatDateTime(option.created_at)}`}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                renderInput={(params) => (
+                  <TextField {...params} label="Версия 2 (правая)" size="small" />
+                )}
+                disableClearable
+              />
               {version2Info && (
                 <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1, fontSize: '0.75rem' }}>
                   {version2Info.device_hostname} | Создано: {formatDateTime(version2Info.created_at)}
                 </Typography>
               )}
-            </FormControl>
-          </Box>
+            </Box>
 
           <Box sx={{ display: 'flex', justifyContent: 'center', my: 2.5 }}>
             <Button
