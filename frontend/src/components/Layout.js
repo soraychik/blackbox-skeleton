@@ -134,20 +134,38 @@ const Layout = ({ settings, onSettingsChange }) => {
 
   const drawer = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Toolbar>
-        <Typography 
-          variant="h6" 
-          noWrap 
-          component="div" 
-          sx={{ 
-            fontWeight: 700, 
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: sidebarCollapsed ? 'center' : 'space-between',
+          px: 2,
+          py: 1.5,
+          minHeight: 56,
+        }}
+      >
+        <Typography
+          variant="h6"
+          noWrap
+          component="div"
+          sx={{
+            fontWeight: 700,
             color: 'primary.main',
             display: sidebarCollapsed ? 'none' : 'block',
           }}
         >
           Black Box
         </Typography>
-      </Toolbar>
+        <IconButton
+          onClick={handleSidebarToggle}
+          sx={{
+            transition: 'transform 0.3s',
+            transform: sidebarCollapsed ? 'rotate(180deg)' : 'rotate(0deg)',
+          }}
+        >
+          <MenuOpenIcon />
+        </IconButton>
+      </Box>
       <List sx={{ px: sidebarCollapsed ? 1 : 2, flexGrow: 1 }}>
         {menuItems.map((item) => (
           <ListItem key={item.text} disablePadding sx={{ mb: 0.5 }}>
@@ -228,17 +246,6 @@ const Layout = ({ settings, onSettingsChange }) => {
               sx={{ mr: 2, display: { md: 'none' } }}
             >
               <MenuIcon />
-            </IconButton>
-            <IconButton
-              onClick={handleSidebarToggle}
-              sx={{
-                mr: 2,
-                display: { xs: 'none', md: 'flex' },
-                transition: 'transform 0.3s',
-                transform: sidebarCollapsed ? 'rotate(180deg)' : 'rotate(0deg)',
-              }}
-            >
-              <MenuOpenIcon />
             </IconButton>
             <Box sx={{ flexGrow: 1 }} />
             <IconButton onClick={handleThemeToggle} sx={{ mr: 1 }}>
