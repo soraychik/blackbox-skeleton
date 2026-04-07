@@ -1,7 +1,7 @@
 # Игнорируем архив конфигов и имеющиеся конфиги
 storage/archived_configs/
 scheduler/configs/*
-
+scheduler/configs-test/*
 
 
 # Игнорируем временные файлы редакторов
