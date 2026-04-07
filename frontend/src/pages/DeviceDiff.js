@@ -20,6 +20,7 @@ import {
 } from '@mui/icons-material';
 import { getDevices, getLatestVersionsForDevices, getVersionDiff } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
+import ListboxComponent from '../utils/VirtualListbox';
 import ChangesTab from '../components/ChangesTab';
 
 const DeviceDiff = () => {
@@ -117,6 +118,7 @@ const DeviceDiff = () => {
           <Grid container spacing={3} alignItems="center">
             <Grid item xs={12} md={5}>
               <Autocomplete
+                ListboxComponent={ListboxComponent}
                 options={devices}
                 getOptionLabel={(option) => option.hostname}
                 value={leftDevice}
@@ -131,6 +133,7 @@ const DeviceDiff = () => {
             </Grid>
             <Grid item xs={12} md={5}>
               <Autocomplete
+                ListboxComponent={ListboxComponent}
                 options={devices}
                 getOptionLabel={(option) => option.hostname}
                 value={rightDevice}

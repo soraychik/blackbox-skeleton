@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import {
   AppBar,
@@ -15,6 +15,7 @@ import {
   Typography,
   Avatar,
   Paper,
+  Tooltip,
   useTheme,
   useMediaQuery,
 } from '@mui/material';
@@ -29,9 +30,11 @@ import {
   LightMode as LightModeIcon,
   Logout as LogoutIcon,
   Settings as SettingsIcon,
+  MenuOpen as MenuOpenIcon,
 } from '@mui/icons-material';
 
-const drawerWidth = 260;
+const DRAWER_WIDTH = 260;
+const DRAWER_WIDTH_COLLAPSED = 72;
 
 const menuItems = [
   { text: 'Дашборд', icon: <DashboardIcon />, path: '/' },
@@ -42,70 +45,38 @@ const menuItems = [
   { text: 'Настройки', icon: <SettingsIcon />, path: '/settings' },
 ];
 
-const SETTINGS_KEY = 'app_settings';
-const SETTINGS_VERSION = 1;
-
-const defaultSettings = {
-  darkMode: false,
-  scale: 0.8,
-  accentColor: '#2563eb',
-  _version: SETTINGS_VERSION,
-};
-
 export const SettingsContext = React.createContext();
 
-const loadSettings = () => {
-  try {
-    const stored = localStorage.getItem(SETTINGS_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      return { ...defaultSettings, ...parsed };
-    }
-  } catch (e) {
-    console.warn('Failed to load settings from localStorage:', e);
-  }
-  return defaultSettings;
-};
-
-const saveSettings = (settings) => {
-  try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, _version: SETTINGS_VERSION }));
-  } catch (e) {
-    console.warn('Failed to save settings to localStorage:', e);
-  }
-};
-
-const Layout = ({ settings: externalSettings, onSettingsChange }) => {
-  const [internalSettings, setInternalSettings] = React.useState(loadSettings);
-  const settings = externalSettings || internalSettings;
-  const setSettings = React.useCallback((updater) => {
-    const newSettings = typeof updater === 'function' ? updater(settings) : updater;
-    if (externalSettings && onSettingsChange) {
-      onSettingsChange(newSettings);
-    } else {
-      setInternalSettings(newSettings);
-    }
-    saveSettings(newSettings);
-  }, [settings, externalSettings, onSettingsChange]);
-
+const Layout = ({ settings, onSettingsChange }) => {
   const darkMode = settings.darkMode;
-  const setDarkMode = React.useCallback((value) => {
-    setSettings((prev) => ({ ...prev, darkMode: typeof value === 'function' ? value(prev.darkMode) : value }));
-  }, [setSettings]);
-
   const scale = settings.scale;
-  const setScale = React.useCallback((value) => {
-    setSettings((prev) => ({ ...prev, scale: typeof value === 'function' ? value(prev.scale) : value }));
-  }, [setSettings]);
-
   const accentColor = settings.accentColor;
-  const setAccentColor = React.useCallback((value) => {
-    setSettings((prev) => ({ ...prev, accentColor: value }));
-  }, [setSettings]);
+
+  const setDarkMode = useCallback((value) => {
+    onSettingsChange((prev) => ({
+      ...prev,
+      darkMode: typeof value === 'function' ? value(prev.darkMode) : value,
+    }));
+  }, [onSettingsChange]);
+
+  const setScale = useCallback((value) => {
+    onSettingsChange((prev) => ({
+      ...prev,
+      scale: typeof value === 'function' ? value(prev.scale) : value,
+    }));
+  }, [onSettingsChange]);
+
+  const setAccentColor = useCallback((value) => {
+    onSettingsChange((prev) => ({ ...prev, accentColor: value }));
+  }, [onSettingsChange]);
+
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem('sidebarCollapsed') === 'true'
+  );
   const userMenuRef = useRef(null);
 
   const navigate = useNavigate();
@@ -121,6 +92,14 @@ const Layout = ({ settings: externalSettings, onSettingsChange }) => {
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, [userMenuOpen]);
+
+  useEffect(() => {
+    localStorage.setItem('sidebarCollapsed', sidebarCollapsed);
+  }, [sidebarCollapsed]);
+
+  const handleSidebarToggle = () => {
+    setSidebarCollapsed((prev) => !prev);
+  };
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -155,36 +134,84 @@ const Layout = ({ settings: externalSettings, onSettingsChange }) => {
 
   const drawer = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Toolbar>
-        <Typography variant="h6" noWrap component="div" sx={{ fontWeight: 700, color: 'primary.main' }}>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: sidebarCollapsed ? 'center' : 'space-between',
+          px: 2,
+          py: 1.5,
+          minHeight: 56,
+        }}
+      >
+        <Typography
+          variant="h6"
+          noWrap
+          component="div"
+          sx={{
+            fontWeight: 700,
+            color: 'primary.main',
+            display: sidebarCollapsed ? 'none' : 'block',
+          }}
+        >
           Black Box
         </Typography>
-      </Toolbar>
-      <List sx={{ px: 2, flexGrow: 1 }}>
+        <IconButton
+          onClick={handleSidebarToggle}
+          sx={{
+            transition: 'transform 0.3s',
+            transform: sidebarCollapsed ? 'rotate(180deg)' : 'rotate(0deg)',
+          }}
+        >
+          <MenuOpenIcon />
+        </IconButton>
+      </Box>
+      <List sx={{ px: sidebarCollapsed ? 1 : 2, flexGrow: 1 }}>
         {menuItems.map((item) => (
           <ListItem key={item.text} disablePadding sx={{ mb: 0.5 }}>
-            <ListItemButton
-              selected={location.pathname === item.path}
-              onClick={() => handleNavigation(item.path)}
-              sx={{
-                borderRadius: 2,
-                '&.Mui-selected': {
-                  backgroundColor: 'primary.main',
-                  color: 'white',
-                  '&:hover': {
-                    backgroundColor: 'primary.dark',
-                  },
-                  '& .MuiListItemIcon-root': {
+            <Tooltip title={item.text} placement="right" arrow>
+              <ListItemButton
+                selected={location.pathname === item.path}
+                onClick={() => handleNavigation(item.path)}
+                sx={{
+                  borderRadius: 2,
+                  minHeight: 48,
+                  justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                  px: 2.5,
+                  '&.Mui-selected': {
+                    backgroundColor: 'primary.main',
                     color: 'white',
+                    '&:hover': {
+                      backgroundColor: 'primary.dark',
+                    },
+                    '& .MuiListItemIcon-root': {
+                      color: 'white',
+                    },
                   },
-                },
-              }}
-            >
-              <ListItemIcon sx={{ minWidth: 40, color: location.pathname === item.path ? 'white' : 'text.secondary' }}>
-                {item.icon}
-              </ListItemIcon>
-              <ListItemText primary={item.text} />
-            </ListItemButton>
+                }}
+              >
+                <ListItemIcon 
+                  sx={{ 
+                    minWidth: 0, 
+                    mr: sidebarCollapsed ? 0 : 2,
+                    justifyContent: 'center',
+                    color: location.pathname === item.path ? 'white' : 'text.secondary',
+                  }}
+                >
+                  {item.icon}
+                </ListItemIcon>
+                <ListItemText 
+                  primary={item.text} 
+                  sx={{ 
+                    opacity: sidebarCollapsed ? 0 : 1,
+                    transition: theme.transitions.create('opacity', {
+                      easing: theme.transitions.easing.sharp,
+                      duration: theme.transitions.duration.enteringScreen,
+                    }),
+                  }} 
+                />
+              </ListItemButton>
+            </Tooltip>
           </ListItem>
         ))}
       </List>
@@ -198,13 +225,17 @@ const Layout = ({ settings: externalSettings, onSettingsChange }) => {
         <AppBar
           position="fixed"
           sx={{
-            width: { md: `calc(100% - ${drawerWidth}px)` },
-            ml: { md: `${drawerWidth}px` },
+            width: { md: `calc(100% - ${sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH}px)` },
+            ml: { md: `${sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH}px` },
             boxShadow: 'none',
             borderBottom: 1,
             borderColor: 'divider',
             bgcolor: 'background.paper',
             color: 'text.primary',
+            transition: theme.transitions.create(['width', 'margin'], {
+              easing: theme.transitions.easing.sharp,
+              duration: theme.transitions.duration.enteringScreen,
+            }),
           }}
         >
           <Toolbar>
@@ -253,7 +284,7 @@ const Layout = ({ settings: externalSettings, onSettingsChange }) => {
         </AppBar>
         <Box
           component="nav"
-          sx={{ width: { md: drawerWidth }, flexShrink: { md: 0 } }}
+          sx={{ width: { md: sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH }, flexShrink: { md: 0 } }}
         >
           <Drawer
             variant="temporary"
@@ -262,7 +293,7 @@ const Layout = ({ settings: externalSettings, onSettingsChange }) => {
             ModalProps={{ keepMounted: true }}
             sx={{
               display: { xs: 'block', md: 'none' },
-              '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+              '& .MuiDrawer-paper': { boxSizing: 'border-box', width: DRAWER_WIDTH },
             }}
           >
             {drawer}
@@ -271,7 +302,17 @@ const Layout = ({ settings: externalSettings, onSettingsChange }) => {
             variant="permanent"
             sx={{
               display: { xs: 'none', md: 'block' },
-              '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth, borderRight: 1, borderColor: 'divider' },
+              '& .MuiDrawer-paper': {
+                boxSizing: 'border-box',
+                width: sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH,
+                borderRight: 1,
+                borderColor: 'divider',
+                transition: theme.transitions.create('width', {
+                  easing: theme.transitions.easing.sharp,
+                  duration: theme.transitions.duration.enteringScreen,
+                }),
+                overflowX: 'hidden',
+              },
             }}
             open
           >
@@ -283,9 +324,13 @@ const Layout = ({ settings: externalSettings, onSettingsChange }) => {
           sx={{
             flexGrow: 1,
             p: 3,
-            width: { md: `calc(100% - ${drawerWidth}px)` },
+            width: { md: `calc(100% - ${sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH}px)` },
             minHeight: '100vh',
             bgcolor: 'background.default',
+            transition: theme.transitions.create('width', {
+              easing: theme.transitions.easing.sharp,
+              duration: theme.transitions.duration.enteringScreen,
+            }),
           }}
         >
           <Toolbar />
