@@ -30,13 +30,13 @@ type ConfigVersion struct {
 }
 
 type DiffIndex struct {
-	ID             int       `json:"id"`
-	LeftVersionID  int       `json:"left_version_id"`
-	RightVersionID int       `json:"right_version_id"`
-	AddedLines     int       `json:"added_lines"`
-	RemovedLines   int       `json:"removed_lines"`
-	DiffContent    *string   `json:"diff_content,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID              int       `json:"id"`
+	LeftVersionID   int       `json:"left_version_id"`
+	RightVersionID  int       `json:"right_version_id"`
+	AddedLines      int       `json:"added_lines"`
+	RemovedLines    int       `json:"removed_lines"`
+	DiffStoragePath *string   `json:"diff_storage_path,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 type DiffLine struct {

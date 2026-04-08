@@ -17,13 +17,14 @@ func NewDiffRepository(db *sql.DB) DiffRepository {
 
 func (r *diffRepository) GetIndex(ctx context.Context, leftID, rightID int) (*models.DiffIndex, error) {
 	var diffIndex models.DiffIndex
+	var storagePath sql.NullString
 	err := r.db.QueryRowContext(ctx, `
-		SELECT id, left_version_id, right_version_id, added_lines, removed_lines, diff_content, created_at 
+		SELECT id, left_version_id, right_version_id, added_lines, removed_lines, diff_storage_path, created_at 
 		FROM diff_index 
 		WHERE left_version_id = ? AND right_version_id = ?`,
 		leftID, rightID,
 	).Scan(&diffIndex.ID, &diffIndex.LeftVersionID, &diffIndex.RightVersionID,
-		&diffIndex.AddedLines, &diffIndex.RemovedLines, &diffIndex.DiffContent, &diffIndex.CreatedAt)
+		&diffIndex.AddedLines, &diffIndex.RemovedLines, &storagePath, &diffIndex.CreatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -31,14 +32,17 @@ func (r *diffRepository) GetIndex(ctx context.Context, leftID, rightID int) (*mo
 	if err != nil {
 		return nil, err
 	}
+	if storagePath.Valid {
+		diffIndex.DiffStoragePath = &storagePath.String
+	}
 	return &diffIndex, nil
 }
 
-func (r *diffRepository) SaveIndex(ctx context.Context, leftID, rightID, added, removed int, diff string) error {
+func (r *diffRepository) SaveIndex(ctx context.Context, leftID, rightID, added, removed int, storagePath string) error {
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO diff_index (left_version_id, right_version_id, added_lines, removed_lines, diff_content) 
+		INSERT INTO diff_index (left_version_id, right_version_id, added_lines, removed_lines, diff_storage_path) 
 		VALUES (?, ?, ?, ?, ?)`,
-		leftID, rightID, added, removed, diff,
+		leftID, rightID, added, removed, storagePath,
 	)
 	return err
 }

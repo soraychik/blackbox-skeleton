@@ -354,14 +354,15 @@ func (db *DB) UpdateJobStatus(jobID int, status string, errorText *string) error
 
 func (db *DB) GetDiffIndex(leftVersionID, rightVersionID int) (*models.DiffIndex, error) {
 	var diffIndex models.DiffIndex
+	var storagePath sql.NullString
 
 	err := db.connection.QueryRow(`
-		SELECT id, left_version_id, right_version_id, added_lines, removed_lines, diff_content, created_at 
+		SELECT id, left_version_id, right_version_id, added_lines, removed_lines, diff_storage_path, created_at 
 		FROM diff_index 
 		WHERE left_version_id = ? AND right_version_id = ?`,
 		leftVersionID, rightVersionID,
 	).Scan(&diffIndex.ID, &diffIndex.LeftVersionID, &diffIndex.RightVersionID,
-		&diffIndex.AddedLines, &diffIndex.RemovedLines, &diffIndex.DiffContent, &diffIndex.CreatedAt)
+		&diffIndex.AddedLines, &diffIndex.RemovedLines, &storagePath, &diffIndex.CreatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -369,14 +370,18 @@ func (db *DB) GetDiffIndex(leftVersionID, rightVersionID int) (*models.DiffIndex
 		return nil, fmt.Errorf("failed to get diff index: %w", err)
 	}
 
+	if storagePath.Valid {
+		diffIndex.DiffStoragePath = &storagePath.String
+	}
+
 	return &diffIndex, nil
 }
 
-func (db *DB) SaveDiffIndex(leftVersionID, rightVersionID int, addedLines, removedLines int, diffContent *string) (*models.DiffIndex, error) {
+func (db *DB) SaveDiffIndex(leftVersionID, rightVersionID int, addedLines, removedLines int, storagePath *string) (*models.DiffIndex, error) {
 	result, err := db.connection.Exec(`
-		INSERT INTO diff_index (left_version_id, right_version_id, added_lines, removed_lines, diff_content) 
+		INSERT INTO diff_index (left_version_id, right_version_id, added_lines, removed_lines, diff_storage_path) 
 		VALUES (?, ?, ?, ?, ?)`,
-		leftVersionID, rightVersionID, addedLines, removedLines, diffContent,
+		leftVersionID, rightVersionID, addedLines, removedLines, storagePath,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save diff index: %w", err)
@@ -385,13 +390,13 @@ func (db *DB) SaveDiffIndex(leftVersionID, rightVersionID int, addedLines, remov
 	id, _ := result.LastInsertId()
 
 	diffIndex := &models.DiffIndex{
-		ID:             int(id),
-		LeftVersionID:  leftVersionID,
-		RightVersionID: rightVersionID,
-		AddedLines:     addedLines,
-		RemovedLines:   removedLines,
-		DiffContent:    diffContent,
-		CreatedAt:      time.Now(),
+		ID:              int(id),
+		LeftVersionID:   leftVersionID,
+		RightVersionID:  rightVersionID,
+		AddedLines:      addedLines,
+		RemovedLines:    removedLines,
+		DiffStoragePath: storagePath,
+		CreatedAt:       time.Now(),
 	}
 
 	return diffIndex, nil

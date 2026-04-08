@@ -24,5 +24,5 @@ type DeviceRepository interface {
 
 type DiffRepository interface {
 	GetIndex(ctx context.Context, leftID, rightID int) (*models.DiffIndex, error)
-	SaveIndex(ctx context.Context, leftID, rightID, added, removed int, diff string) error
+	SaveIndex(ctx context.Context, leftID, rightID, added, removed int, storagePath string) error
 }

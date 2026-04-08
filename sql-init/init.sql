@@ -64,7 +64,7 @@ CREATE TABLE diff_index (
     right_version_id INT NOT NULL,
     added_lines INT NOT NULL DEFAULT 0,
     removed_lines INT NOT NULL DEFAULT 0,
-    diff_content MEDIUMTEXT,
+    diff_storage_path VARCHAR(512) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (left_version_id) REFERENCES config_versions(id) ON DELETE CASCADE,
     FOREIGN KEY (right_version_id) REFERENCES config_versions(id) ON DELETE CASCADE,

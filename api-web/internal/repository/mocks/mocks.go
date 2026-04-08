@@ -64,13 +64,13 @@ func (m *MockDeviceRepository) GetAllEnabledWithLatestVersion(ctx context.Contex
 
 type MockDiffRepository struct {
 	GetIndexFn  func(ctx context.Context, leftID, rightID int) (*models.DiffIndex, error)
-	SaveIndexFn func(ctx context.Context, leftID, rightID, added, removed int, diff string) error
+	SaveIndexFn func(ctx context.Context, leftID, rightID, added, removed int, storagePath string) error
 }
 
 func (m *MockDiffRepository) GetIndex(ctx context.Context, leftID, rightID int) (*models.DiffIndex, error) {
 	return m.GetIndexFn(ctx, leftID, rightID)
 }
 
-func (m *MockDiffRepository) SaveIndex(ctx context.Context, leftID, rightID, added, removed int, diff string) error {
-	return m.SaveIndexFn(ctx, leftID, rightID, added, removed, diff)
+func (m *MockDiffRepository) SaveIndex(ctx context.Context, leftID, rightID, added, removed int, storagePath string) error {
+	return m.SaveIndexFn(ctx, leftID, rightID, added, removed, storagePath)
 }

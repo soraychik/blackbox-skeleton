@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -115,14 +117,32 @@ func (h *VersionsHandler) GetVersionDiff(c *gin.Context) {
 		return
 	}
 
+	if diffIndex != nil && diffIndex.DiffStoragePath != nil {
+		cached, err := h.minio.DownloadDiffCache(c.Request.Context(), *diffIndex.DiffStoragePath)
+		if err == nil {
+			var diffLines []models.DiffLine
+			if json.Unmarshal(cached, &diffLines) == nil {
+				c.JSON(http.StatusOK, models.DiffResult{
+					LeftVersionID:  id1,
+					RightVersionID: id2,
+					Lines:          diffLines,
+				})
+				return
+			}
+			log.Printf("failed to unmarshal cached diff, recalculating")
+		} else {
+			log.Printf("failed to download cached diff: %v, recalculating", err)
+		}
+	}
+
 	version1, err := h.versionRepo.GetByID(c.Request.Context(), id1)
-	if err != nil {
+	if err != nil || version1 == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Version 1 not found"})
 		return
 	}
 
 	version2, err := h.versionRepo.GetByID(c.Request.Context(), id2)
-	if err != nil {
+	if err != nil || version2 == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Version 2 not found"})
 		return
 	}
@@ -140,26 +160,32 @@ func (h *VersionsHandler) GetVersionDiff(c *gin.Context) {
 	}
 
 	diffEngine := storage.NewDiffEngine()
-	addedLines, removedLines := diffEngine.ParseUnifiedDiffStats(string(content2))
-
-	if diffIndex == nil {
-		diffStr := diffEngine.CreateUnifiedDiff(content1, content2, fmt.Sprintf("v%d", id1), fmt.Sprintf("v%d", id2))
-		if err := h.diffRepo.SaveIndex(c.Request.Context(), id1, id2, addedLines, removedLines, diffStr); err != nil {
-			log.Printf("failed to cache diff: %v", err)
-		}
-	}
-
+	addedLines, removedLines := diffEngine.ParseUnifiedDiffStats(
+		diffEngine.CreateUnifiedDiff(content1, content2, fmt.Sprintf("v%d", id1), fmt.Sprintf("v%d", id2)),
+	)
 	diffLines := service.ComputeDiffLines(string(content1), string(content2))
 
-	result := models.DiffResult{
+	go func() {
+		data, err := json.Marshal(diffLines)
+		if err != nil {
+			log.Printf("failed to marshal diff lines: %v", err)
+			return
+		}
+		path, err := h.minio.UploadDiffCache(context.Background(), id1, id2, data)
+		if err != nil {
+			log.Printf("failed to upload diff cache: %v", err)
+			return
+		}
+		if err := h.diffRepo.SaveIndex(context.Background(), id1, id2, addedLines, removedLines, path); err != nil {
+			log.Printf("failed to save diff index: %v", err)
+		}
+	}()
+
+	c.JSON(http.StatusOK, models.DiffResult{
 		LeftVersionID:  id1,
 		RightVersionID: id2,
-		LeftContent:    "",
-		RightContent:   "",
 		Lines:          diffLines,
-	}
-
-	c.JSON(http.StatusOK, result)
+	})
 }
 
 func (h *VersionsHandler) GetDiffByDate(c *gin.Context) {

@@ -257,3 +257,16 @@ func (m *MinIOImprovedClient) ListObjects(prefix string) ([]string, error) {
 	}
 	return objects, nil
 }
+
+func (m *MinIOImprovedClient) UploadDiffCache(ctx context.Context, leftID, rightID int, content []byte) (string, error) {
+	path := fmt.Sprintf("diff-cache/%d/%d.json", leftID, rightID)
+	_, _, err := m.UploadCompressed(ctx, path, content, "application/json")
+	if err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func (m *MinIOImprovedClient) DownloadDiffCache(ctx context.Context, storagePath string) ([]byte, error) {
+	return m.DownloadDecompressed(ctx, storagePath)
+}
