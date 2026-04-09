@@ -77,6 +77,7 @@ const Layout = ({ settings, onSettingsChange }) => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem('sidebarCollapsed') === 'true'
   );
+  const [mounted, setMounted] = useState(false);
   const userMenuRef = useRef(null);
 
   const navigate = useNavigate();
@@ -96,6 +97,10 @@ const Layout = ({ settings, onSettingsChange }) => {
   useEffect(() => {
     localStorage.setItem('sidebarCollapsed', sidebarCollapsed);
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleSidebarToggle = () => {
     setSidebarCollapsed((prev) => !prev);
@@ -151,7 +156,15 @@ const Layout = ({ settings, onSettingsChange }) => {
           sx={{
             fontWeight: 700,
             color: 'primary.main',
-            display: sidebarCollapsed ? 'none' : 'block',
+            opacity: sidebarCollapsed ? 0 : 1,
+            width: sidebarCollapsed ? 0 : 'auto',
+            overflow: 'hidden',
+            transition: mounted ? theme.transitions.create(['opacity', 'width'], {
+              easing: theme.transitions.easing.sharp,
+              duration: theme.transitions.duration.leavingScreen,
+            }) : 'none',
+            whiteSpace: 'nowrap',
+            pointerEvents: sidebarCollapsed ? 'none' : 'auto',
           }}
         >
           Black Box
@@ -169,14 +182,14 @@ const Layout = ({ settings, onSettingsChange }) => {
       <List sx={{ px: sidebarCollapsed ? 1 : 2, flexGrow: 1 }}>
         {menuItems.map((item) => (
           <ListItem key={item.text} disablePadding sx={{ mb: 0.5 }}>
-            <Tooltip title={item.text} placement="right" arrow>
+            <Tooltip title={sidebarCollapsed ? item.text : ''} placement="right" arrow>
               <ListItemButton
                 selected={location.pathname === item.path}
                 onClick={() => handleNavigation(item.path)}
                 sx={{
                   borderRadius: 2,
                   minHeight: 48,
-                  justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                  justifyContent: 'flex-start',
                   px: 2.5,
                   '&.Mui-selected': {
                     backgroundColor: 'primary.main',
@@ -196,6 +209,10 @@ const Layout = ({ settings, onSettingsChange }) => {
                     mr: sidebarCollapsed ? 0 : 2,
                     justifyContent: 'center',
                     color: location.pathname === item.path ? 'white' : 'text.secondary',
+                    transition: mounted ? theme.transitions.create('margin', {
+                      easing: theme.transitions.easing.sharp,
+                      duration: theme.transitions.duration.enteringScreen,
+                    }) : 'none',
                   }}
                 >
                   {item.icon}
@@ -204,10 +221,14 @@ const Layout = ({ settings, onSettingsChange }) => {
                   primary={item.text} 
                   sx={{ 
                     opacity: sidebarCollapsed ? 0 : 1,
-                    transition: theme.transitions.create('opacity', {
+                    width: sidebarCollapsed ? 0 : 'auto',
+                    overflow: 'hidden',
+                    transition: mounted ? theme.transitions.create(['opacity', 'width'], {
                       easing: theme.transitions.easing.sharp,
-                      duration: theme.transitions.duration.enteringScreen,
-                    }),
+                      duration: theme.transitions.duration.leavingScreen,
+                    }) : 'none',
+                    whiteSpace: 'nowrap',
+                    pointerEvents: 'none',
                   }} 
                 />
               </ListItemButton>
@@ -232,10 +253,10 @@ const Layout = ({ settings, onSettingsChange }) => {
             borderColor: 'divider',
             bgcolor: 'background.paper',
             color: 'text.primary',
-            transition: theme.transitions.create(['width', 'margin'], {
+            transition: mounted ? theme.transitions.create(['width', 'margin'], {
               easing: theme.transitions.easing.sharp,
               duration: theme.transitions.duration.enteringScreen,
-            }),
+            }) : 'none',
           }}
         >
           <Toolbar>
@@ -284,7 +305,14 @@ const Layout = ({ settings, onSettingsChange }) => {
         </AppBar>
         <Box
           component="nav"
-          sx={{ width: { md: sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH }, flexShrink: { md: 0 } }}
+          sx={{ 
+            width: { md: sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH }, 
+            flexShrink: { md: 0 },
+            transition: mounted ? theme.transitions.create('width', {
+              easing: theme.transitions.easing.sharp,
+              duration: theme.transitions.duration.enteringScreen,
+            }) : 'none',
+          }}
         >
           <Drawer
             variant="temporary"
@@ -307,11 +335,12 @@ const Layout = ({ settings, onSettingsChange }) => {
                 width: sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH,
                 borderRight: 1,
                 borderColor: 'divider',
-                transition: theme.transitions.create('width', {
+                transition: mounted ? theme.transitions.create('width', {
                   easing: theme.transitions.easing.sharp,
                   duration: theme.transitions.duration.enteringScreen,
-                }),
+                }) : 'none',
                 overflowX: 'hidden',
+                whiteSpace: 'nowrap',
               },
             }}
             open
@@ -327,10 +356,10 @@ const Layout = ({ settings, onSettingsChange }) => {
             width: { md: `calc(100% - ${sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH}px)` },
             minHeight: '100vh',
             bgcolor: 'background.default',
-            transition: theme.transitions.create('width', {
+            transition: mounted ? theme.transitions.create('width', {
               easing: theme.transitions.easing.sharp,
               duration: theme.transitions.duration.enteringScreen,
-            }),
+            }) : 'none',
           }}
         >
           <Toolbar />
