@@ -13,17 +13,19 @@ import (
 	"blackbox-scheduler/internal/remotefs"
 )
 
+const fileWorkers = 20 // параллельных воркеров на обработку файлов
+
 type FileServerConfig struct {
 	ID         string `json:"id"`
-	Type       string `json:"type"`       // nfs, smb, local
-	Server     string `json:"server"`     // IP или имя хоста
-	SharePath  string `json:"sharePath"`  // Для NFS
-	ShareName  string `json:"shareName"`  // Для SMB
-	MountPoint string `json:"mountPoint"` // Локальный путь монтирования
-	Username   string `json:"username"`   // Для SMB
-	Password   string `json:"password"`   // Для SMB
-	Domain     string `json:"domain"`     // Для SMB
-	LocalPath  string `json:"localPath"`  // Для локальной ФС
+	Type       string `json:"type"`
+	Server     string `json:"server"`
+	SharePath  string `json:"sharePath"`
+	ShareName  string `json:"shareName"`
+	MountPoint string `json:"mountPoint"`
+	Username   string `json:"username"`
+	Password   string `json:"password"`
+	Domain     string `json:"domain"`
+	LocalPath  string `json:"localPath"`
 	Enabled    bool   `json:"enabled"`
 }
 
@@ -49,7 +51,6 @@ func NewFileServerManager(processor *fileprocessor.ImprovedFileProcessor, db *da
 	}
 }
 
-// LoadServers загружает и инициализирует все настроенные файловые серверы
 func (fsm *FileServerManager) LoadServers() error {
 	configs := getConfigsFromEnv()
 
@@ -84,13 +85,8 @@ func (fsm *FileServerManager) LoadServers() error {
 	return nil
 }
 
-// createServerInstance создает экземпляр файлового сервера
 func (fsm *FileServerManager) createServerInstance(id string, config *FileServerConfig) (*FileServerInstance, error) {
-	var fs *remotefs.RemoteFileSystem
-	var err error
-
 	if config.Type == "local" {
-		// Для локальной файловой системы нам не нужен remotefs
 		return &FileServerInstance{
 			config:    config,
 			fs:        nil,
@@ -99,10 +95,7 @@ func (fsm *FileServerManager) createServerInstance(id string, config *FileServer
 		}, nil
 	}
 
-	// Для удаленных файловых систем создаем экземпляр remotefs
-	// Пока используем существующий NewRemoteFileSystem который читает из env
-	// В будущем можно расширить для принятия конфигурации
-	fs, err = remotefs.NewRemoteFileSystem()
+	fs, err := remotefs.NewRemoteFileSystem()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create remote file system: %w", err)
 	}
@@ -115,7 +108,6 @@ func (fsm *FileServerManager) createServerInstance(id string, config *FileServer
 	}, nil
 }
 
-// MountAllServers монтирует все файловые серверы
 func (fsm *FileServerManager) MountAllServers() error {
 	fsm.mu.RLock()
 	defer fsm.mu.RUnlock()
@@ -124,7 +116,6 @@ func (fsm *FileServerManager) MountAllServers() error {
 
 	for id, instance := range fsm.servers {
 		if instance.fs == nil {
-			// Локальная файловая система, монтирование не требуется
 			instance.isHealthy = true
 			continue
 		}
@@ -145,7 +136,6 @@ func (fsm *FileServerManager) MountAllServers() error {
 	return nil
 }
 
-// ProcessAllServers обрабатывает все серверы параллельно
 func (fsm *FileServerManager) ProcessAllServers() {
 	fsm.mu.RLock()
 	servers := make(map[string]*FileServerInstance)
@@ -172,7 +162,7 @@ func (fsm *FileServerManager) ProcessAllServers() {
 	wg.Wait()
 }
 
-// processServer обрабатывает файлы на одном сервере
+// processServer обрабатывает файлы на одном сервере параллельно через семафор
 func (fsm *FileServerManager) processServer(id string, instance *FileServerInstance) {
 	var configDir string
 
@@ -191,16 +181,28 @@ func (fsm *FileServerManager) processServer(id string, instance *FileServerInsta
 
 	log.Printf("%d files found on server %s", len(files), id)
 
+	// Семафор ограничивает количество параллельных обработок файлов
+	sem := make(chan struct{}, fileWorkers)
+	var wg sync.WaitGroup
+
 	for _, filePath := range files {
-		if err := fsm.processSingleFile(id, filePath); err != nil {
-			log.Printf("error processing file %s from server %s: %v", filePath, id, err)
-		}
+		wg.Add(1)
+		fp := filePath // захват переменной
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			if err := fsm.processSingleFile(id, fp); err != nil {
+				log.Printf("error processing file %s from server %s: %v", fp, id, err)
+			}
+		}()
 	}
 
+	wg.Wait()
 	instance.lastCheck = time.Now()
 }
 
-// processSingleFile обрабатывает один файл
 func (fsm *FileServerManager) processSingleFile(serverID, filePath string) error {
 	log.Printf("file processing: %s (server: %s)", filePath, serverID)
 
@@ -209,7 +211,6 @@ func (fsm *FileServerManager) processSingleFile(serverID, filePath string) error
 		return fmt.Errorf("failed to process file: %w", err)
 	}
 
-	// Включаем ID сервера в имя устройства для уникальности
 	deviceName := fmt.Sprintf("%s-%s", serverID, fileInfo.Name)
 
 	ctx := context.Background()
@@ -222,14 +223,12 @@ func (fsm *FileServerManager) processSingleFile(serverID, filePath string) error
 	return nil
 }
 
-// CheckHealth проверяет состояние всех серверов
 func (fsm *FileServerManager) CheckHealth() {
 	fsm.mu.RLock()
 	defer fsm.mu.RUnlock()
 
 	for id, instance := range fsm.servers {
 		if instance.fs == nil {
-			// Локальная файловая система всегда здорова
 			continue
 		}
 
@@ -252,7 +251,6 @@ func (fsm *FileServerManager) CheckHealth() {
 	}
 }
 
-// GetStatus возвращает статус всех серверов
 func (fsm *FileServerManager) GetStatus() map[string]interface{} {
 	fsm.mu.RLock()
 	defer fsm.mu.RUnlock()
@@ -277,7 +275,6 @@ func (fsm *FileServerManager) GetStatus() map[string]interface{} {
 	return status
 }
 
-// Close закрывает все соединения и размонтирует серверы
 func (fsm *FileServerManager) Close() error {
 	fsm.mu.Lock()
 	defer fsm.mu.Unlock()
@@ -299,15 +296,12 @@ func (fsm *FileServerManager) Close() error {
 	return nil
 }
 
-// getConfigsFromEnv загружает конфигурации серверов из переменных окружения
-// ТОЛЬКО ОДИН РЕЖИМ: либо удаленные сервера, либо локальное хранилище
 func getConfigsFromEnv() map[string]*FileServerConfig {
 	configs := make(map[string]*FileServerConfig)
 
-	// Проверяем, включен ли локальный режим
 	if getEnv("LOCAL_FS_ENABLED", "false") == "true" {
 		localPath := getEnv("LOCAL_FS_PATH", "/app/configs")
-		log.Printf("development mode: local storage %q (place files in scheduler/configs on the host)", localPath)
+		log.Printf("development mode: local storage %q", localPath)
 		configs["local"] = &FileServerConfig{
 			ID:        "local",
 			Type:      "local",
@@ -317,10 +311,8 @@ func getConfigsFromEnv() map[string]*FileServerConfig {
 		return configs
 	}
 
-	// ПРОИЗВОДСТВЕННЫЙ РЕЖИМ: используем удаленные файловые сервера
 	log.Println("production mode: remote file servers are used")
 
-	// Конфигурация для сервера 1
 	if getEnv("FILE_SERVER_ENABLED", "true") == "true" {
 		configs["server1"] = &FileServerConfig{
 			ID:         "server1",
@@ -335,7 +327,6 @@ func getConfigsFromEnv() map[string]*FileServerConfig {
 		}
 	}
 
-	// Конфигурация для сервера 2 (пример)
 	if getEnv("FILE_SERVER_2_ENABLED", "false") == "true" {
 		configs["server2"] = &FileServerConfig{
 			ID:         "server2",
@@ -350,7 +341,6 @@ func getConfigsFromEnv() map[string]*FileServerConfig {
 	return configs
 }
 
-// getEnv получает значение переменной окружения или возвращает значение по умолчанию
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value

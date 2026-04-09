@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 
 	"blackbox-api/internal/cache"
@@ -158,15 +157,4 @@ func ReconstructVersionContent(ctx context.Context, versionRepo repository.Versi
 	}
 
 	return nil, fmt.Errorf("unknown storage type: %s", version.StorageType)
-}
-
-func GetSchedulerURL() string {
-	return getEnv("SCHEDULER_TRIGGER_URL", "http://scheduler:9090")
-}
-
-func getEnv(key, defaultValue string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return defaultValue
 }
