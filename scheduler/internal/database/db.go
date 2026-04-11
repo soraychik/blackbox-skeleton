@@ -607,3 +607,25 @@ func (db *DB) SaveDiffIndex(leftVersionID, rightVersionID int, addedLines, remov
 func (db *DB) Close() error {
 	return db.connection.Close()
 }
+
+// GetAllFileStates загружает всё содержимое device_file_state одним запросом.
+// Возвращает map[hostname]*FileState для быстрого поиска без обращения к БД в цикле.
+func (db *DB) GetAllFileStates() (map[string]*FileState, error) {
+	rows, err := db.connection.Query(`SELECT hostname, file_size, file_mtime FROM device_file_state`)
+	if err != nil {
+		return nil, fmt.Errorf("GetAllFileStates: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]*FileState)
+	for rows.Next() {
+		var fs FileState
+		var modTime time.Time
+		if err := rows.Scan(&fs.Hostname, &fs.Size, &modTime); err != nil {
+			return nil, fmt.Errorf("GetAllFileStates scan: %w", err)
+		}
+		fs.ModTime = truncateToMillis(modTime)
+		result[fs.Hostname] = &fs
+	}
+	return result, nil
+}
