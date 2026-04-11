@@ -2,6 +2,7 @@ package service
 
 import (
 	"regexp"
+	"sort"
 
 	"blackbox-api/internal/models"
 )
@@ -49,69 +50,74 @@ func AnyLineMatches(lines []string, res []*regexp.Regexp) bool {
 	return false
 }
 
+// FindSnippetLines — оригинальная версия, оставлена для совместимости.
 func FindSnippetLines(lines []string, matches [][]int, contextLines int) []models.SnippetLine {
+	return FindSnippetLinesOptimized(lines, matches, contextLines)
+}
+
+// FindSnippetLinesOptimized строит индекс смещений строк один раз,
+// затем использует бинарный поиск для каждого match.
+// Сложность: O(N + M×logN) вместо O(N×M) у оригинала,
+// где N = кол-во строк, M = кол-во совпадений.
+func FindSnippetLinesOptimized(lines []string, matches [][]int, contextLines int) []models.SnippetLine {
+	if len(lines) == 0 || len(matches) == 0 {
+		return nil
+	}
+
+	// Строим массив начальных смещений каждой строки — один проход O(N).
+	offsets := make([]int, len(lines))
+	pos := 0
+	for i, line := range lines {
+		offsets[i] = pos
+		pos += len(line) + 1 // +1 за \n
+	}
+
+	// findLine возвращает номер строки для байтового смещения через бинарный поиск O(logN).
+	findLine := func(byteOffset int) int {
+		idx := sort.SearchInts(offsets, byteOffset)
+		// SearchInts возвращает первый индекс >= byteOffset.
+		// Если точного совпадения нет — берём предыдущую строку.
+		if idx < len(offsets) && offsets[idx] == byteOffset {
+			return idx
+		}
+		if idx > 0 {
+			return idx - 1
+		}
+		return 0
+	}
+
+	// Определяем какие строки являются совпадениями.
 	matchingLines := make(map[int]bool)
 	for _, match := range matches {
-		startLine := 0
-		pos := 0
-		for i, line := range lines {
-			lineLen := len(line) + 1
-			if pos+lineLen > match[0] {
-				startLine = i
-				break
-			}
-			pos += lineLen
-		}
-		endLine := startLine
-		pos = 0
-		for i, line := range lines {
-			lineLen := len(line) + 1
-			if pos+lineLen > match[1] {
-				endLine = i
-				break
-			}
-			pos += lineLen
-		}
-		for i := startLine; i <= endLine; i++ {
+		start := findLine(match[0])
+		end := findLine(match[1])
+		for i := start; i <= end; i++ {
 			matchingLines[i] = true
 		}
 	}
 
+	// Собираем сниппеты с контекстом, без дублей.
 	seenLines := make(map[int]bool)
 	var snippetLines []models.SnippetLine
 
 	for _, match := range matches {
-		startLine := 0
-		pos := 0
-		for i, line := range lines {
-			lineLen := len(line) + 1
-			if pos+lineLen > match[0] {
-				startLine = i
-				break
-			}
-			pos += lineLen
+		startLine := findLine(match[0])
+		endLine := findLine(match[1])
+
+		from := startLine - contextLines
+		if from < 0 {
+			from = 0
+		}
+		to := endLine + contextLines
+		if to >= len(lines) {
+			to = len(lines) - 1
 		}
 
-		endLine := startLine
-		pos = 0
-		for i, line := range lines {
-			lineLen := len(line) + 1
-			if pos+lineLen > match[1] {
-				endLine = i
-				break
-			}
-			pos += lineLen
-		}
-
-		for i := startLine - contextLines; i <= endLine+contextLines; i++ {
-			if i < 0 || i >= len(lines) {
-				continue
-			}
+		for i := from; i <= to; i++ {
 			if seenLines[i] {
 				continue
 			}
 			seenLines[i] = true
-
 			snippetLines = append(snippetLines, models.SnippetLine{
 				Line:  i + 1,
 				Text:  lines[i],

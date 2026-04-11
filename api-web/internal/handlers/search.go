@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"crypto/md5"
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -21,14 +23,51 @@ type SearchHandler struct {
 	minio       *storage.MinIOImprovedClient
 	versionRepo repository.VersionRepository
 	deviceRepo  repository.DeviceRepository
+	db          *sql.DB
 }
 
-func NewSearchHandler(minio *storage.MinIOImprovedClient, versionRepo repository.VersionRepository, deviceRepo repository.DeviceRepository) *SearchHandler {
+func NewSearchHandler(minio *storage.MinIOImprovedClient, versionRepo repository.VersionRepository, deviceRepo repository.DeviceRepository, db *sql.DB) *SearchHandler {
 	return &SearchHandler{
 		minio:       minio,
 		versionRepo: versionRepo,
 		deviceRepo:  deviceRepo,
+		db:          db,
 	}
+}
+
+// patternHash возвращает короткий ключ для кэша search_index.
+func patternHash(pattern string, caseSensitive bool) string {
+	key := pattern
+	if caseSensitive {
+		key += ":cs"
+	}
+	return fmt.Sprintf("%x", md5.Sum([]byte(key)))[:16]
+}
+
+// getSearchCache проверяет кэш search_index. Возвращает -1 если кэша нет.
+func (h *SearchHandler) getSearchCache(ctx context.Context, versionID int, hash string) int {
+	var count int
+	err := h.db.QueryRowContext(ctx,
+		`SELECT match_count FROM search_index WHERE version_id=? AND pattern_hash=?`,
+		versionID, hash,
+	).Scan(&count)
+	if err != nil {
+		return -1
+	}
+	return count
+}
+
+// saveSearchCache сохраняет результат в search_index асинхронно.
+func (h *SearchHandler) saveSearchCache(versionID int, hash string, count int) {
+	go func() {
+		_, err := h.db.Exec(
+			`INSERT IGNORE INTO search_index (version_id, pattern_hash, match_count) VALUES (?,?,?)`,
+			versionID, hash, count,
+		)
+		if err != nil {
+			log.Printf("saveSearchCache: %v", err)
+		}
+	}()
 }
 
 func (h *SearchHandler) PostSearchChanges(c *gin.Context) {
@@ -182,6 +221,8 @@ func (h *SearchHandler) PostSearchCount(c *gin.Context) {
 	searchCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
+	pHash := patternHash(req.Pattern, req.CaseSensitive)
+
 	type job struct{ dv models.DeviceVersionRow }
 	type result struct {
 		res models.SearchCountResult
@@ -197,12 +238,36 @@ func (h *SearchHandler) PostSearchCount(c *gin.Context) {
 		go func() {
 			defer wg.Done()
 			for j := range jobs {
-				version, err := h.versionRepo.GetByID(searchCtx, j.dv.VersionID)
-				if err != nil {
-					log.Printf("failed to get version %d: %v", j.dv.VersionID, err)
-					resultsCh <- result{}
+				// Оптимизация 1: проверяем кэш search_index до скачивания контента.
+				// Если паттерн уже считался для этой версии — возвращаем из БД мгновенно.
+				if cached := h.getSearchCache(searchCtx, j.dv.VersionID, pHash); cached >= 0 {
+					if cached == 0 {
+						resultsCh <- result{}
+					} else {
+						resultsCh <- result{
+							ok: true,
+							res: models.SearchCountResult{
+								DeviceID:   j.dv.DeviceID,
+								VersionID:  j.dv.VersionID,
+								Hostname:   j.dv.Hostname,
+								MgmtIP:     j.dv.MgmtIP,
+								MatchCount: cached,
+								// Сниппеты не кэшируем — их мало и они быстро считаются
+							},
+						}
+					}
 					continue
 				}
+
+				// Оптимизация 2: собираем ConfigVersion прямо из DeviceVersionRow
+				// без лишнего GetByID запроса к БД.
+				version := &models.ConfigVersion{
+					ID:          j.dv.VersionID,
+					DeviceID:    j.dv.DeviceID,
+					StorageType: j.dv.StorageType,
+					StoragePath: j.dv.StoragePath,
+				}
+
 				content, err := service.GetCachedVersionContent(searchCtx, h.versionRepo, h.minio, version)
 				if err != nil {
 					log.Printf("failed to get content for device %d: %v", j.dv.DeviceID, err)
@@ -212,13 +277,19 @@ func (h *SearchHandler) PostSearchCount(c *gin.Context) {
 
 				contentStr := string(content)
 				matches := re.FindAllStringIndex(contentStr, -1)
+
+				// Сохраняем результат в кэш (даже если 0 совпадений)
+				h.saveSearchCache(j.dv.VersionID, pHash, len(matches))
+
 				if len(matches) == 0 {
 					resultsCh <- result{}
 					continue
 				}
 
+				// Оптимизация 3: строим индекс смещений один раз,
+				// вместо двойного прохода по строкам для каждого match.
 				lines := strings.Split(contentStr, "\n")
-				snippetLines := service.FindSnippetLines(lines, matches, 2)
+				snippetLines := service.FindSnippetLinesOptimized(lines, matches, 2)
 
 				resultsCh <- result{
 					ok: true,

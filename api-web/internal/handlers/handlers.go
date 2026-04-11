@@ -25,7 +25,7 @@ func NewHandlers(
 	return &Handlers{
 		Devices:   NewDevicesHandler(db, deviceRepo, versionRepo),
 		Versions:  NewVersionsHandler(db, minio, versionRepo, diffRepo),
-		Search:    NewSearchHandler(minio, versionRepo, deviceRepo),
+		Search:    NewSearchHandler(minio, versionRepo, deviceRepo, db),
 		Export:    NewExportHandler(db, minio, versionRepo),
 		Dashboard: NewDashboardHandler(db),
 	}
