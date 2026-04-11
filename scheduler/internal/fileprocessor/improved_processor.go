@@ -125,6 +125,15 @@ func (ifp *ImprovedFileProcessor) SaveVersion(
 	return version, nil
 }
 
+func (ifp *ImprovedFileProcessor) PrepareStorage(
+	ctx context.Context,
+	db *database.DB,
+	fileInfo *models.FileInfo,
+	latestVersion *models.ConfigVersion,
+) (storageType, storagePath string, originalSize, compressedSize uint32, parentVersionID, chainBaseID *int, chainPosition int, err error) {
+	return ifp.determineStorageType(ctx, db, fileInfo, latestVersion)
+}
+
 func (ifp *ImprovedFileProcessor) determineStorageType(
 	ctx context.Context,
 	db *database.DB,

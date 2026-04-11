@@ -13,7 +13,7 @@ import (
 	"blackbox-scheduler/internal/remotefs"
 )
 
-const fileWorkers = 20 // параллельных воркеров на обработку файлов
+const fileWorkers = 20
 
 type FileServerConfig struct {
 	ID         string `json:"id"`
@@ -61,13 +61,11 @@ func (fsm *FileServerManager) LoadServers() error {
 		if !config.Enabled {
 			continue
 		}
-
 		instance, err := fsm.createServerInstance(id, config)
 		if err != nil {
 			log.Printf("failed to create server instance %s: %v", id, err)
 			continue
 		}
-
 		fsm.servers[id] = instance
 		if config.Type == "local" {
 			log.Printf("file server added: %s (local folder: %s)", id, config.LocalPath)
@@ -77,11 +75,8 @@ func (fsm *FileServerManager) LoadServers() error {
 	}
 
 	if len(fsm.servers) == 0 {
-		log.Printf("warning: no file sources are configured. scanning will not occur. " +
-			"enable local folder: LOCAL_FS_ENABLED=true and specify LOCAL_FS_PATH (e.g. /app/configs), " +
-			"or set up a remote server: FILE_SERVER_ENABLED=true.")
+		log.Printf("warning: no file sources are configured. scanning will not occur.")
 	}
-
 	return nil
 }
 
@@ -94,12 +89,10 @@ func (fsm *FileServerManager) createServerInstance(id string, config *FileServer
 			isHealthy: true,
 		}, nil
 	}
-
 	fs, err := remotefs.NewRemoteFileSystem()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create remote file system: %w", err)
 	}
-
 	return &FileServerInstance{
 		config:    config,
 		fs:        fs,
@@ -113,26 +106,22 @@ func (fsm *FileServerManager) MountAllServers() error {
 	defer fsm.mu.RUnlock()
 
 	var errors []string
-
 	for id, instance := range fsm.servers {
 		if instance.fs == nil {
 			instance.isHealthy = true
 			continue
 		}
-
 		if err := instance.fs.Mount(); err != nil {
-			errors = append(errors, fmt.Sprintf("Сервер %s: %v", id, err))
+			errors = append(errors, fmt.Sprintf("server %s: %v", id, err))
 			instance.isHealthy = false
 		} else {
 			instance.isHealthy = true
 			log.Printf("mounted server %s", id)
 		}
 	}
-
 	if len(errors) > 0 {
 		return fmt.Errorf("mounting errors: %v", errors)
 	}
-
 	return nil
 }
 
@@ -145,27 +134,25 @@ func (fsm *FileServerManager) ProcessAllServers() {
 	fsm.mu.RUnlock()
 
 	var wg sync.WaitGroup
-
 	for id, instance := range servers {
 		if !instance.isHealthy {
 			log.Printf("skip unhealthy server: %s", id)
 			continue
 		}
-
 		wg.Add(1)
 		go func(serverID string, inst *FileServerInstance) {
 			defer wg.Done()
 			fsm.processServer(serverID, inst)
 		}(id, instance)
 	}
-
 	wg.Wait()
 }
 
-// processServer обрабатывает файлы на одном сервере параллельно через семафор
+// processServer обрабатывает файлы сервера в два этапа:
+// 1. pre-check: os.Stat + сравнение mtime/size — без чтения файла
+// 2. параллельная обработка через семафор — только изменившихся файлов
 func (fsm *FileServerManager) processServer(id string, instance *FileServerInstance) {
 	var configDir string
-
 	if instance.config.Type == "local" {
 		configDir = instance.config.LocalPath
 	} else {
@@ -178,16 +165,45 @@ func (fsm *FileServerManager) processServer(id string, instance *FileServerInsta
 		instance.isHealthy = false
 		return
 	}
-
 	log.Printf("%d files found on server %s", len(files), id)
 
-	// Семафор ограничивает количество параллельных обработок файлов
+	// --- Этап 1: pre-check mtime/size без чтения файлов ---
+	var candidates []string
+	skipped := 0
+	for _, filePath := range files {
+		info, err := os.Stat(filePath)
+		if err != nil {
+			log.Printf("stat failed for %s: %v", filePath, err)
+			continue
+		}
+		state, err := fsm.db.GetFileState(info.Name())
+		if err != nil {
+			log.Printf("GetFileState failed for %s: %v", info.Name(), err)
+			candidates = append(candidates, filePath)
+			continue
+		}
+		if state != nil && state.Size == info.Size() && state.ModTime.Equal(info.ModTime().Truncate(time.Millisecond)) {
+			skipped++
+			continue
+		}
+		candidates = append(candidates, filePath)
+	}
+	log.Printf("server %s: %d to process, %d skipped by mtime/size", id, len(candidates), skipped)
+
+	if len(candidates) == 0 {
+		instance.lastCheck = time.Now()
+		return
+	}
+
+	// --- Этап 2: параллельная обработка + запись сразу ---
+	// Каждый воркер пишет в БД самостоятельно — это быстрее одного большого батча
+	// потому что транзакции маленькие и не блокируют друг друга.
 	sem := make(chan struct{}, fileWorkers)
 	var wg sync.WaitGroup
 
-	for _, filePath := range files {
+	for _, filePath := range candidates {
 		wg.Add(1)
-		fp := filePath // захват переменной
+		fp := filePath
 		go func() {
 			defer wg.Done()
 			sem <- struct{}{}
@@ -203,15 +219,12 @@ func (fsm *FileServerManager) processServer(id string, instance *FileServerInsta
 	instance.lastCheck = time.Now()
 }
 
+// processSingleFile читает файл, проверяет hash, сохраняет версию и обновляет file state.
 func (fsm *FileServerManager) processSingleFile(serverID, filePath string) error {
-	log.Printf("file processing: %s (server: %s)", filePath, serverID)
-
 	fileInfo, err := fsm.processor.ProcessFile(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to process file: %w", err)
 	}
-
-	deviceName := fmt.Sprintf("%s-%s", serverID, fileInfo.Name)
 
 	ctx := context.Background()
 	_, err = fsm.processor.SaveVersion(ctx, fsm.db, fileInfo)
@@ -219,7 +232,12 @@ func (fsm *FileServerManager) processSingleFile(serverID, filePath string) error
 		return fmt.Errorf("failed to save version: %w", err)
 	}
 
-	log.Printf("processed version for %s", deviceName)
+	// Обновляем file state чтобы следующий запуск пропустил этот файл по mtime/size
+	if err := fsm.db.UpsertFileState(fileInfo.Hostname, fileInfo.Size, fileInfo.ModTime); err != nil {
+		log.Printf("warning: failed to upsert file state for %s: %v", fileInfo.Hostname, err)
+	}
+
+	log.Printf("processed version for %s-%s", serverID, fileInfo.Hostname)
 	return nil
 }
 
@@ -231,13 +249,11 @@ func (fsm *FileServerManager) CheckHealth() {
 		if instance.fs == nil {
 			continue
 		}
-
 		healthy := true
 		if err := instance.fs.CheckConnection(); err != nil {
 			healthy = false
 			log.Printf("health check failed for server %s: %v", id, err)
 		}
-
 		if !healthy && instance.isHealthy {
 			log.Printf("server %s became unhealthy, attempting remount", id)
 			if err := instance.fs.Mount(); err != nil {
@@ -246,7 +262,6 @@ func (fsm *FileServerManager) CheckHealth() {
 				healthy = true
 			}
 		}
-
 		instance.isHealthy = healthy
 	}
 }
@@ -255,24 +270,20 @@ func (fsm *FileServerManager) GetStatus() map[string]interface{} {
 	fsm.mu.RLock()
 	defer fsm.mu.RUnlock()
 
-	status := make(map[string]interface{})
 	servers := make(map[string]interface{})
-
 	for id, instance := range fsm.servers {
-		serverInfo := map[string]interface{}{
+		servers[id] = map[string]interface{}{
 			"type":      instance.config.Type,
 			"server":    instance.config.Server,
 			"enabled":   instance.config.Enabled,
 			"healthy":   instance.isHealthy,
 			"lastCheck": instance.lastCheck.Format(time.RFC3339),
 		}
-		servers[id] = serverInfo
 	}
-
-	status["servers"] = servers
-	status["totalServers"] = len(servers)
-
-	return status
+	return map[string]interface{}{
+		"servers":      servers,
+		"totalServers": len(servers),
+	}
 }
 
 func (fsm *FileServerManager) Close() error {
@@ -280,7 +291,6 @@ func (fsm *FileServerManager) Close() error {
 	defer fsm.mu.Unlock()
 
 	var errors []error
-
 	for id, instance := range fsm.servers {
 		if instance.fs != nil {
 			if err := instance.fs.Unmount(); err != nil {
@@ -288,11 +298,9 @@ func (fsm *FileServerManager) Close() error {
 			}
 		}
 	}
-
 	if len(errors) > 0 {
 		return fmt.Errorf("unmount errors: %v", errors)
 	}
-
 	return nil
 }
 
@@ -303,10 +311,7 @@ func getConfigsFromEnv() map[string]*FileServerConfig {
 		localPath := getEnv("LOCAL_FS_PATH", "/app/configs")
 		log.Printf("development mode: local storage %q", localPath)
 		configs["local"] = &FileServerConfig{
-			ID:        "local",
-			Type:      "local",
-			LocalPath: localPath,
-			Enabled:   true,
+			ID: "local", Type: "local", LocalPath: localPath, Enabled: true,
 		}
 		return configs
 	}
@@ -326,7 +331,6 @@ func getConfigsFromEnv() map[string]*FileServerConfig {
 			Enabled:    true,
 		}
 	}
-
 	if getEnv("FILE_SERVER_2_ENABLED", "false") == "true" {
 		configs["server2"] = &FileServerConfig{
 			ID:         "server2",
@@ -337,7 +341,6 @@ func getConfigsFromEnv() map[string]*FileServerConfig {
 			Enabled:    true,
 		}
 	}
-
 	return configs
 }
 

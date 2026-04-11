@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"time"
+	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -50,6 +51,207 @@ func NewDB() (*DB, error) {
 
 	log.Println("successfully connected to mysql database")
 	return &DB{connection: conn}, nil
+}
+
+// FileState хранит последнее известное состояние файла на диске
+type FileState struct {
+	Hostname string
+	Size     int64
+	ModTime  time.Time
+}
+
+// truncateToMillis обрезает время до миллисекунд.
+// os.Stat возвращает наносекунды, MySQL DATETIME(3) хранит миллисекунды.
+// Без обрезки time.Equal возвращает false даже при одинаковом времени.
+func truncateToMillis(t time.Time) time.Time {
+	return t.Truncate(time.Millisecond)
+}
+
+// GetFileState возвращает последнее сохранённое состояние файла по hostname.
+// Возвращает nil, nil если запись не найдена.
+func (db *DB) GetFileState(hostname string) (*FileState, error) {
+	var fs FileState
+	var modTime time.Time
+	err := db.connection.QueryRow(`
+		SELECT hostname, file_size, file_mtime
+		FROM device_file_state
+		WHERE hostname = ?`, hostname,
+	).Scan(&fs.Hostname, &fs.Size, &modTime)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("GetFileState: %w", err)
+	}
+	fs.ModTime = truncateToMillis(modTime)
+	return &fs, nil
+}
+
+// UpsertFileState сохраняет или обновляет состояние файла.
+func (db *DB) UpsertFileState(hostname string, size int64, modTime time.Time) error {
+	_, err := db.connection.Exec(`
+		INSERT INTO device_file_state (hostname, file_size, file_mtime)
+		VALUES (?, ?, ?)
+		ON DUPLICATE KEY UPDATE file_size = VALUES(file_size), file_mtime = VALUES(file_mtime)`,
+		hostname, size, truncateToMillis(modTime),
+	)
+	if err != nil {
+		return fmt.Errorf("UpsertFileState: %w", err)
+	}
+	return nil
+}
+
+// VersionCandidate — результат обработки одного файла, готовый к записи в БД.
+type VersionCandidate struct {
+	DeviceID        int
+	VersionHash     string
+	StorageType     string
+	StoragePath     string
+	ParentVersionID *int
+	ChainBaseID     *int
+	ChainPosition   int
+	OriginalSize    uint32
+	CompressedSize  uint32
+	// Для обновления device_file_state после успешной записи
+	Hostname string
+	FileSize int64
+	FileTime time.Time
+}
+
+// SaveVersionsBatch сохраняет несколько версий одной транзакцией.
+// Каждая версия вставляется отдельным INSERT (MySQL не поддерживает
+// multi-row INSERT с LAST_INSERT_ID для каждой строки), но все в одной tx —
+// это даёт значительный выигрыш по сравнению с N отдельных транзакций.
+// После успешной записи обновляется device_file_state для каждого устройства.
+func (db *DB) SaveVersionsBatch(candidates []VersionCandidate) error {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	tx, err := db.connection.Begin()
+	if err != nil {
+		return fmt.Errorf("SaveVersionsBatch begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO config_versions
+		(device_id, version_hash, storage_type, storage_path,
+		 parent_version_id, chain_base_id, chain_position, original_size, compressed_size)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("SaveVersionsBatch prepare: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, c := range candidates {
+		var parentID, baseID interface{}
+		if c.ParentVersionID != nil {
+			parentID = *c.ParentVersionID
+		}
+		if c.ChainBaseID != nil {
+			baseID = *c.ChainBaseID
+		}
+		if _, err := stmt.Exec(
+			c.DeviceID, c.VersionHash, c.StorageType, c.StoragePath,
+			parentID, baseID, c.ChainPosition, c.OriginalSize, c.CompressedSize,
+		); err != nil {
+			return fmt.Errorf("SaveVersionsBatch insert device %d: %w", c.DeviceID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("SaveVersionsBatch commit: %w", err)
+	}
+
+	// Обновляем file state после успешной записи всех версий
+	for _, c := range candidates {
+		if c.Hostname != "" {
+			if err := db.UpsertFileState(c.Hostname, c.FileSize, c.FileTime); err != nil {
+				log.Printf("warning: failed to upsert file state for %s: %v", c.Hostname, err)
+			}
+		}
+	}
+
+	log.Printf("batch saved %d versions", len(candidates))
+	return nil
+}
+
+// ResolveHostnames возвращает map hostname -> device_id для списка хостов,
+// создавая устройства которых ещё нет. Один запрос вместо N.
+func (db *DB) ResolveHostnames(hostnames []string) (map[string]int, error) {
+	if len(hostnames) == 0 {
+		return map[string]int{}, nil
+	}
+
+	// Сначала получаем все уже существующие
+	placeholders := strings.Repeat("?,", len(hostnames))
+	placeholders = placeholders[:len(placeholders)-1]
+
+	args := make([]interface{}, len(hostnames))
+	for i, h := range hostnames {
+		args[i] = h
+	}
+
+	rows, err := db.connection.Query(
+		"SELECT id, hostname FROM devices WHERE hostname IN ("+placeholders+")", args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ResolveHostnames query: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]int, len(hostnames))
+	for rows.Next() {
+		var id int
+		var hostname string
+		if err := rows.Scan(&id, &hostname); err != nil {
+			return nil, err
+		}
+		result[hostname] = id
+	}
+
+	// Создаём отсутствующие одним батчем
+	var missing []string
+	for _, h := range hostnames {
+		if _, ok := result[h]; !ok {
+			missing = append(missing, h)
+		}
+	}
+
+	if len(missing) > 0 {
+		placeholders = strings.Repeat("(?),", len(missing))
+		placeholders = placeholders[:len(placeholders)-1]
+		insertArgs := make([]interface{}, len(missing))
+		for i, h := range missing {
+			insertArgs[i] = h
+		}
+		if _, err := db.connection.Exec(
+			"INSERT IGNORE INTO devices (hostname) VALUES "+placeholders, insertArgs...,
+		); err != nil {
+			return nil, fmt.Errorf("ResolveHostnames insert: %w", err)
+		}
+
+		// Перечитываем созданные
+		rows2, err := db.connection.Query(
+			"SELECT id, hostname FROM devices WHERE hostname IN ("+placeholders+")", insertArgs...,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("ResolveHostnames re-query: %w", err)
+		}
+		defer rows2.Close()
+		for rows2.Next() {
+			var id int
+			var hostname string
+			if err := rows2.Scan(&id, &hostname); err != nil {
+				return nil, err
+			}
+			result[hostname] = id
+		}
+	}
+
+	return result, nil
 }
 
 func (db *DB) GetOrCreateDevice(hostname string) (*models.Device, error) {
