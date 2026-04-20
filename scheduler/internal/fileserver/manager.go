@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"blackbox-scheduler/internal/database"
+	"blackbox-scheduler/internal/docker"
 	"blackbox-scheduler/internal/fileprocessor"
 	"blackbox-scheduler/internal/remotefs"
 )
@@ -34,6 +37,7 @@ type FileServerManager struct {
 	processor *fileprocessor.ImprovedFileProcessor
 	db        *database.DB
 	mu        sync.RWMutex
+	hostFS    *docker.HostFS
 }
 
 type FileServerInstance struct {
@@ -44,10 +48,17 @@ type FileServerInstance struct {
 }
 
 func NewFileServerManager(processor *fileprocessor.ImprovedFileProcessor, db *database.DB) *FileServerManager {
+	hostFS, err := docker.NewHostFS()
+	if err != nil {
+		log.Printf("warning: failed to initialize hostFS: %v", err)
+		hostFS = nil
+	}
+
 	return &FileServerManager{
 		servers:   make(map[string]*FileServerInstance),
 		processor: processor,
 		db:        db,
+		hostFS:    hostFS,
 	}
 }
 
@@ -288,6 +299,37 @@ func (fsm *FileServerManager) GetStatus() map[string]interface{} {
 	}
 }
 
+func (fsm *FileServerManager) ReloadConfigSource(db *database.DB) error {
+	fsm.mu.Lock()
+	defer fsm.mu.Unlock()
+
+	configSourcePath, err := db.GetSystemSetting("config_source_path")
+	if err != nil {
+		return fmt.Errorf("failed to get config_source_path: %w", err)
+	}
+	if configSourcePath == "" {
+		log.Println("config_source_path not set, using default /app/configs")
+		configSourcePath = "/app/configs"
+	}
+
+	containerPath := configSourcePath
+	if fsm.hostFS != nil {
+		containerPath = fsm.convertHostPath(configSourcePath)
+		if err := fsm.hostFS.SetHostPath(configSourcePath); err != nil {
+			log.Printf("warning: hostFS.SetHostPath failed: %v", err)
+		}
+	}
+
+	for id, instance := range fsm.servers {
+		if instance.config.Type == "local" {
+			oldPath := instance.config.LocalPath
+			instance.config.LocalPath = containerPath
+			log.Printf("updated local path for server %s: %s -> %s", id, fsm.convertBackHostPath(oldPath), configSourcePath)
+		}
+	}
+	return nil
+}
+
 func (fsm *FileServerManager) Close() error {
 	fsm.mu.Lock()
 	defer fsm.mu.Unlock()
@@ -351,4 +393,34 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+func (fsm *FileServerManager) convertHostPath(originalPath string) string {
+	if fsm.hostFS == nil {
+		return originalPath
+	}
+
+	absPath, err := filepath.Abs(originalPath)
+	if err != nil {
+		log.Printf("failed to get absolute path for %s: %v", originalPath, err)
+		return originalPath
+	}
+
+	if !strings.HasPrefix(absPath, "/host") {
+		absPath = "/host" + absPath
+	}
+
+	return absPath
+}
+
+func (fsm *FileServerManager) convertBackHostPath(containerPath string) string {
+	if fsm.hostFS == nil {
+		return containerPath
+	}
+
+	if strings.HasPrefix(containerPath, "/host") {
+		containerPath = strings.TrimPrefix(containerPath, "/host")
+	}
+
+	return containerPath
 }

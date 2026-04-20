@@ -123,3 +123,14 @@ CREATE TABLE IF NOT EXISTS device_file_state (
         ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (hostname)
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS system_settings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    settings_key VARCHAR(64) NOT NULL UNIQUE,
+    settings_value TEXT,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+INSERT INTO system_settings (settings_key, settings_value) VALUES 
+('config_source_type', 'local'),
+('config_source_path', '/app/configs');

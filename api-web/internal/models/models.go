@@ -143,3 +143,13 @@ type DeviceVersionRow struct {
 	StorageType string
 	StoragePath string
 }
+
+type SystemSettings struct {
+	ConfigSourceType string `json:"config_source_type"`
+	ConfigSourcePath string `json:"config_source_path"`
+}
+
+type SettingsUpdateRequest struct {
+	ConfigSourceType string `json:"config_source_type"`
+	ConfigSourcePath string `json:"config_source_path"`
+}
