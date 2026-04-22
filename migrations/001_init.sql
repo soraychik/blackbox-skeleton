@@ -33,10 +33,7 @@ CREATE TABLE site_mappings (
 INSERT INTO site_mappings (code, name) VALUES
     ('ekb', 'Екатеринбург'),
     ('ntg', 'Нижний Тагил'),
-    ('kur', 'Каменск-Уральский'),
-    ('msc', 'Москва'),
-    ('tum', 'Тюмень'),
-    ('kurg', 'Курган');
+    ('kur', 'Каменск-Уральский');
 
 CREATE TABLE config_versions (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -104,22 +101,5 @@ CREATE TABLE audit (
     INDEX idx_audit_user (user_id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE search_index (
-    version_id    INT NOT NULL,
-    pattern_hash  CHAR(32) NOT NULL,
-    match_count   INT NOT NULL,
-    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (version_id, pattern_hash),
-    FOREIGN KEY (version_id) REFERENCES config_versions(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
 
--- Кэш состояния файлов на диске для mtime/size pre-check.
--- Позволяет пропускать файлы которые не изменились без чтения контента.
-CREATE TABLE IF NOT EXISTS device_file_state (
-    hostname    VARCHAR(255) NOT NULL,
-    file_size   BIGINT       NOT NULL,
-    file_mtime  DATETIME(3)  NOT NULL,
-    updated_at  DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
-        ON UPDATE CURRENT_TIMESTAMP(3),
-    PRIMARY KEY (hostname)
-) ENGINE=InnoDB;
+

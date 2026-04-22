@@ -1,0 +1,4 @@
+FROM mysql:8.0
+COPY migrate.sh /migrate.sh
+RUN chmod +x /migrate.sh
+ENTRYPOINT ["/migrate.sh"]

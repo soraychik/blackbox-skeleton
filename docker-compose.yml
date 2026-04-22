@@ -21,6 +21,28 @@ services:
       retries: 10
       start_period: 30s
 
+  # Сервис миграций — запускается один раз после mysql-db, затем завершается.
+  # Применяет только новые файлы из папки migrations/ (уже применённые пропускает).
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    container_name: blackbox-migrate
+    restart: "no"
+    volumes:
+      - ./migrations:/migrations:ro
+    environment:
+      DATABASE_HOST: mysql-db
+      DATABASE_PORT: "3306"
+      DATABASE_USER: appuser
+      DATABASE_PASSWORD: apppassword
+      DATABASE_NAME: blackbox
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+    networks:
+      - blackbox-net
+
   minio:
     image: minio/minio:latest
     container_name: blackbox-minio
@@ -60,6 +82,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - blackbox-net
 
@@ -76,6 +100,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - blackbox-net
 
