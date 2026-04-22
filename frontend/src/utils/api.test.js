@@ -186,6 +186,49 @@ describe('API functions', () => {
 
       expect(result).toEqual(mockData)
     })
+
+    it('возвращает ошибку если версии не найдены', async () => {
+      const mockError = { error: 'no versions found for date 2024-01-01' }
+      getDiffByDate.mockRejectedValue(new Error(JSON.stringify(mockError)))
+
+      await expect(getDiffByDate('dev-123', '2024-01-01', '2024-01-02'))
+        .rejects.toThrow()
+    })
+
+    it('возвращает diff между двумя версиями', async () => {
+      const mockDiff = {
+        left_version_id: 10,
+        right_version_id: 15,
+        added_lines: 5,
+        removed_lines: 2,
+        diff: '---old\n+++new\n@@ -1,2 +1,3 @@',
+      }
+      getDiffByDate.mockResolvedValue(mockDiff)
+
+      const result = await getDiffByDate('dev-123', '2024-01-15', '2024-01-20')
+
+      expect(result.left_version_id).toBe(10)
+      expect(result.right_version_id).toBe(15)
+      expect(result.added_lines).toBe(5)
+      expect(result.removed_lines).toBe(2)
+    })
+
+    it('принимает пустые строки дат', async () => {
+      const mockData = { diff: [] }
+      getDiffByDate.mockResolvedValue(mockData)
+
+      const result = await getDiffByDate('dev-123', '', '')
+
+      expect(result).toEqual(mockData)
+    })
+
+    it('валидирует deviceId', async () => {
+      const mockError = { error: 'invalid deviceId' }
+      getDiffByDate.mockRejectedValue(new Error(JSON.stringify(mockError)))
+
+      await expect(getDiffByDate('', '2024-01-01', '2024-01-02'))
+        .rejects.toThrow()
+    })
   })
 
   describe('exportConfigByDate', () => {

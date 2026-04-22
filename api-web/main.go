@@ -67,6 +67,8 @@ func main() {
 	router.POST("/search/count", h.Search.PostSearchCount)
 	router.POST("/scan", handlers.PostTriggerScan)
 	router.GET("/scan/status", handlers.GetScanStatus)
+	router.GET("/settings", h.Settings.GetSettings)
+	router.PUT("/settings", h.Settings.UpdateSettings)
 
 	log.Println("api web server starting on :8080")
 	router.Run(":8080")

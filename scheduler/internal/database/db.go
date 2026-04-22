@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 	"strings"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -628,4 +628,16 @@ func (db *DB) GetAllFileStates() (map[string]*FileState, error) {
 		result[fs.Hostname] = &fs
 	}
 	return result, nil
+}
+
+func (db *DB) GetSystemSetting(key string) (string, error) {
+	var value string
+	err := db.connection.QueryRow("SELECT settings_value FROM system_settings WHERE settings_key = ?", key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("GetSystemSetting %s: %w", key, err)
+	}
+	return value, nil
 }

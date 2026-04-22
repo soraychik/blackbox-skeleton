@@ -13,6 +13,7 @@ type Handlers struct {
 	Search    *SearchHandler
 	Export    *ExportHandler
 	Dashboard *DashboardHandler
+	Settings  *SettingsHandler
 }
 
 func NewHandlers(
@@ -28,5 +29,6 @@ func NewHandlers(
 		Search:    NewSearchHandler(minio, versionRepo, deviceRepo, db),
 		Export:    NewExportHandler(db, minio, versionRepo),
 		Dashboard: NewDashboardHandler(db),
+		Settings:  NewSettingsHandler(db),
 	}
 }

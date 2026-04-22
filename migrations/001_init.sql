@@ -102,4 +102,28 @@ CREATE TABLE audit (
 ) ENGINE=InnoDB;
 
 
+<<<<<<< HEAD:migrations/001_init.sql
 
+=======
+-- Кэш состояния файлов на диске для mtime/size pre-check.
+-- Позволяет пропускать файлы которые не изменились без чтения контента.
+CREATE TABLE IF NOT EXISTS device_file_state (
+    hostname    VARCHAR(255) NOT NULL,
+    file_size   BIGINT       NOT NULL,
+    file_mtime  DATETIME(3)  NOT NULL,
+    updated_at  DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+        ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (hostname)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS system_settings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    settings_key VARCHAR(64) NOT NULL UNIQUE,
+    settings_value TEXT,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+INSERT INTO system_settings (settings_key, settings_value) VALUES 
+('config_source_type', 'local'),
+('config_source_path', '/app/configs');
+>>>>>>> af83360b1e8254dc00b1d357a837a6a0d1e28793:sql-init/init.sql

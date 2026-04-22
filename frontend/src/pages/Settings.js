@@ -14,6 +14,7 @@ import {
   FormControl,
   InputLabel,
   Grid,
+  Button,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -24,8 +25,10 @@ import {
   Security as SecurityIcon,
   Settings as SettingsIcon,
   Cloud as CloudIcon,
+  Save as SaveIcon,
 } from '@mui/icons-material';
 import { SettingsContext } from '../components/Layout';
+import { getSettings, updateSettings } from '../utils/api';
 
 const ACCENT_COLORS = [
   { value: '#2563eb', label: 'Синий' },
@@ -81,6 +84,41 @@ const ScaleSelector = ({ value, onChange }) => {
 const Settings = () => {
   const { darkMode, setDarkMode, scale, setScale, accentColor, setAccentColor } = React.useContext(SettingsContext);
   const [fileServerType, setFileServerType] = React.useState('local');
+  const [configSourcePath, setConfigSourcePath] = React.useState('/app/configs');
+  const [saving, setSaving] = React.useState(false);
+  const [saveMessage, setSaveMessage] = React.useState('');
+
+  React.useEffect(() => {
+    getSettings()
+      .then((settings) => {
+        if (settings.config_source_type) {
+          setFileServerType(settings.config_source_type);
+        }
+        if (settings.config_source_path) {
+          setConfigSourcePath(settings.config_source_path);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load settings:', err);
+      });
+  }, []);
+
+  const handleSaveConfigSource = async () => {
+    setSaving(true);
+    setSaveMessage('');
+    try {
+      await updateSettings({
+        config_source_type: fileServerType,
+        config_source_path: configSourcePath,
+      });
+      setSaveMessage('Настройки сохранены');
+    } catch (err) {
+      setSaveMessage('Ошибка сохранения: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setSaving(false);
+      setTimeout(() => setSaveMessage(''), 3000);
+    }
+  };
 
   const getPlaceholder = () => {
     switch (fileServerType) {
@@ -213,9 +251,11 @@ const Settings = () => {
                   <TextField
                     fullWidth
                     label="Путь"
+                    value={configSourcePath}
+                    onChange={(e) => setConfigSourcePath(e.target.value)}
                     placeholder={getPlaceholder()}
                     helperText={
-                      fileServerType === 'local' ? 'Локальный путь к директории' :
+                      fileServerType === 'local' ? 'Абсолютный путь к папке на хосте (например /mnt/configs)' :
                       fileServerType === 'smb' ? 'smb://server/share' : 'nfs://server:/path'
                     }
                   />
@@ -235,6 +275,24 @@ const Settings = () => {
                   </Grid>
                 </>
               )}
+
+              <Grid item xs={12}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Button
+                    variant="contained"
+                    onClick={handleSaveConfigSource}
+                    disabled={saving}
+                    startIcon={<SaveIcon />}
+                  >
+                    {saving ? 'Сохранение...' : 'Сохранить'}
+                  </Button>
+                  {saveMessage && (
+                    <Typography variant="body2" color={saveMessage.includes('Ошибка') ? 'error' : 'success.main'}>
+                      {saveMessage}
+                    </Typography>
+                  )}
+                </Box>
+              </Grid>
             </Grid>
           </CardContent>
         </Card>

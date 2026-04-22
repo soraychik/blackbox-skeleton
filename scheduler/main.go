@@ -115,6 +115,13 @@ func main() {
 	healthTicker := time.NewTicker(60 * time.Second)
 	defer healthTicker.Stop()
 
+	settingsTicker := time.NewTicker(30 * time.Second)
+	defer settingsTicker.Stop()
+
+	if err := serverManager.ReloadConfigSource(db); err != nil {
+		log.Printf("warning: failed to reload config source from settings: %v", err)
+	}
+
 	log.Println("scheduler started")
 
 	for {
@@ -131,6 +138,10 @@ func main() {
 			nextScanTimer.Reset(scanInterval)
 		case <-healthTicker.C:
 			serverManager.CheckHealth()
+		case <-settingsTicker.C:
+			if err := serverManager.ReloadConfigSource(db); err != nil {
+				log.Printf("settings check: failed to reload config source: %v", err)
+			}
 		}
 	}
 }
