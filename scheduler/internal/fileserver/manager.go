@@ -321,11 +321,9 @@ func (fsm *FileServerManager) ReloadConfigSource(db *database.DB) error {
 	}
 
 	for id, instance := range fsm.servers {
-		if instance.config.Type == "local" {
-			oldPath := instance.config.LocalPath
-			instance.config.LocalPath = containerPath
-			log.Printf("updated local path for server %s: %s -> %s", id, fsm.convertBackHostPath(oldPath), configSourcePath)
-		}
+		oldPath := instance.config.LocalPath
+		instance.config.LocalPath = containerPath
+		log.Printf("updated path for server %s: %s -> %s", id, fsm.convertBackHostPath(oldPath), configSourcePath)
 	}
 	return nil
 }
