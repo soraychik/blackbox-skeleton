@@ -239,22 +239,38 @@ func (h *SearchHandler) PostSearchCount(c *gin.Context) {
 			defer wg.Done()
 			for j := range jobs {
 				// Оптимизация 1: проверяем кэш search_index до скачивания контента.
-				// Если паттерн уже считался для этой версии — возвращаем из БД мгновенно.
+				// match_count берём из кэша, сниппеты считаем заново через GlobalContentCache
+				// (контент уже в памяти — MinIO повторно не дёргается).
 				if cached := h.getSearchCache(searchCtx, j.dv.VersionID, pHash); cached >= 0 {
 					if cached == 0 {
 						resultsCh <- result{}
-					} else {
-						resultsCh <- result{
-							ok: true,
-							res: models.SearchCountResult{
-								DeviceID:   j.dv.DeviceID,
-								VersionID:  j.dv.VersionID,
-								Hostname:   j.dv.Hostname,
-								MgmtIP:     j.dv.MgmtIP,
-								MatchCount: cached,
-								// Сниппеты не кэшируем — их мало и они быстро считаются
-							},
-						}
+						continue
+					}
+					version := &models.ConfigVersion{
+						ID:          j.dv.VersionID,
+						DeviceID:    j.dv.DeviceID,
+						StorageType: j.dv.StorageType,
+						StoragePath: j.dv.StoragePath,
+					}
+					content, err := service.GetCachedVersionContent(searchCtx, h.versionRepo, h.minio, version)
+					if err != nil {
+						resultsCh <- result{}
+						continue
+					}
+					contentStr := string(content)
+					matches := re.FindAllStringIndex(contentStr, -1)
+					lines := strings.Split(contentStr, "\n")
+					snippetLines := service.FindSnippetLinesOptimized(lines, matches, 2)
+					resultsCh <- result{
+						ok: true,
+						res: models.SearchCountResult{
+							DeviceID:   j.dv.DeviceID,
+							VersionID:  j.dv.VersionID,
+							Hostname:   j.dv.Hostname,
+							MgmtIP:     j.dv.MgmtIP,
+							MatchCount: cached,
+							Snippets:   snippetLines,
+						},
 					}
 					continue
 				}
