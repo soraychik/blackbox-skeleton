@@ -147,9 +147,15 @@ type DeviceVersionRow struct {
 type SystemSettings struct {
 	ConfigSourceType string `json:"config_source_type"`
 	ConfigSourcePath string `json:"config_source_path"`
+	SmbUsername      string `json:"smb_username,omitempty"`
+	SmbDomain        string `json:"smb_domain,omitempty"`
+	// SmbPassword намеренно не возвращается в ответе API
 }
 
 type SettingsUpdateRequest struct {
 	ConfigSourceType string `json:"config_source_type"`
 	ConfigSourcePath string `json:"config_source_path"`
+	SmbUsername      string `json:"smb_username"`
+	SmbPassword      string `json:"smb_password"`
+	SmbDomain        string `json:"smb_domain"`
 }

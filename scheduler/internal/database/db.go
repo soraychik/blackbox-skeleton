@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 	"time"
+	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -630,14 +630,72 @@ func (db *DB) GetAllFileStates() (map[string]*FileState, error) {
 	return result, nil
 }
 
-func (db *DB) GetSystemSetting(key string) (string, error) {
-	var value string
-	err := db.connection.QueryRow("SELECT settings_value FROM system_settings WHERE settings_key = ?", key).Scan(&value)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
+// ConfigSourceSettings хранит настройки источника конфигов из system_settings.
+type ConfigSourceSettings struct {
+	Type        string // local, smb, nfs
+	Path        string // локальный путь или share path
+	SmbServer   string
+	SmbShare    string
+	SmbUsername string
+	SmbPassword string
+	SmbDomain   string
+	NfsServer   string
+	NfsPath     string
+}
+
+// GetConfigSourceSettings читает все настройки источника одним запросом.
+func (db *DB) GetConfigSourceSettings() (*ConfigSourceSettings, error) {
+	rows, err := db.connection.Query(
+		`SELECT settings_key, settings_value FROM system_settings
+		 WHERE settings_key IN (
+			'config_source_type','config_source_path',
+			'smb_username','smb_password','smb_domain'
+		 )`,
+	)
 	if err != nil {
-		return "", fmt.Errorf("GetSystemSetting %s: %w", key, err)
+		return nil, fmt.Errorf("GetConfigSourceSettings: %w", err)
 	}
-	return value, nil
+	defer rows.Close()
+
+	s := &ConfigSourceSettings{
+		Type:      "local",
+		Path:      "/app/configs",
+		SmbDomain: "WORKGROUP",
+	}
+
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			continue
+		}
+		switch key {
+		case "config_source_type":
+			s.Type = value
+		case "config_source_path":
+			s.Path = value
+		case "smb_username":
+			s.SmbUsername = value
+		case "smb_password":
+			s.SmbPassword = value
+		case "smb_domain":
+			if value != "" {
+				s.SmbDomain = value
+			}
+		}
+	}
+
+	// Парсим путь для SMB: //server/share (также поддерживаем smb://server/share)
+	if s.Type == "smb" && s.Path != "" {
+		path := strings.TrimSpace(s.Path)
+		path = strings.TrimPrefix(path, "smb://")
+		path = strings.ReplaceAll(path, "\\", "/")
+		path = strings.TrimPrefix(path, "//")
+		parts := strings.SplitN(path, "/", 2)
+		if len(parts) == 2 {
+			s.SmbServer = strings.TrimSpace(parts[0])
+			s.SmbShare = strings.Trim(strings.TrimSpace(parts[1]), "/")
+		}
+	}
+
+	return s, nil
 }

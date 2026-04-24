@@ -33,24 +33,31 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 		return
 	}
 
+	updates := map[string]string{}
+
 	if req.ConfigSourceType != "" {
-		if _, err := h.db.Exec(`
-			INSERT INTO system_settings (settings_key, settings_value)
-			VALUES ('config_source_type', ?)
-			ON DUPLICATE KEY UPDATE settings_value = VALUES(settings_value)
-		`, req.ConfigSourceType); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update config_source_type"})
-			return
-		}
+		updates["config_source_type"] = req.ConfigSourceType
+	}
+	if req.ConfigSourcePath != "" {
+		updates["config_source_path"] = req.ConfigSourcePath
+	}
+	if req.SmbUsername != "" {
+		updates["smb_username"] = req.SmbUsername
+	}
+	if req.SmbPassword != "" {
+		updates["smb_password"] = req.SmbPassword
+	}
+	if req.SmbDomain != "" {
+		updates["smb_domain"] = req.SmbDomain
 	}
 
-	if req.ConfigSourcePath != "" {
+	for key, value := range updates {
 		if _, err := h.db.Exec(`
 			INSERT INTO system_settings (settings_key, settings_value)
-			VALUES ('config_source_path', ?)
+			VALUES (?, ?)
 			ON DUPLICATE KEY UPDATE settings_value = VALUES(settings_value)
-		`, req.ConfigSourcePath); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update config_source_path"})
+		`, key, value); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update " + key})
 			return
 		}
 	}
@@ -67,23 +74,34 @@ func (h *SettingsHandler) loadSettings() (*models.SystemSettings, error) {
 	settings := &models.SystemSettings{
 		ConfigSourceType: "local",
 		ConfigSourcePath: "/app/configs",
+		SmbDomain:        "WORKGROUP",
 	}
 
-	var value string
-	err := h.db.QueryRow("SELECT settings_value FROM system_settings WHERE settings_key = 'config_source_type'").Scan(&value)
-	if err != nil && err != sql.ErrNoRows {
+	rows, err := h.db.Query("SELECT settings_key, settings_value FROM system_settings")
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return settings, nil
+		}
 		return nil, err
 	}
-	if err == nil && value != "" {
-		settings.ConfigSourceType = value
-	}
+	defer rows.Close()
 
-	err = h.db.QueryRow("SELECT settings_value FROM system_settings WHERE settings_key = 'config_source_path'").Scan(&value)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, err
-	}
-	if err == nil && value != "" {
-		settings.ConfigSourcePath = value
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			continue
+		}
+		switch key {
+		case "config_source_type":
+			settings.ConfigSourceType = value
+		case "config_source_path":
+			settings.ConfigSourcePath = value
+		case "smb_username":
+			settings.SmbUsername = value
+		case "smb_domain":
+			settings.SmbDomain = value
+		// Пароль намеренно не возвращаем в ответе
+		}
 	}
 
 	return settings, nil

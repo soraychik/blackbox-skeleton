@@ -11,6 +11,7 @@ DROP TABLE IF EXISTS diff_index;
 DROP TABLE IF EXISTS jobs;
 DROP TABLE IF EXISTS search_index;
 DROP TABLE IF EXISTS device_file_state;
+DROP TABLE IF EXISTS system_settings;
 DROP TABLE IF EXISTS config_versions;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS site_mappings;
@@ -103,3 +104,9 @@ CREATE TABLE audit (
     INDEX idx_audit_user (user_id)
 ) ENGINE=InnoDB;
 
+CREATE TABLE system_settings (
+    settings_key   VARCHAR(128) NOT NULL PRIMARY KEY,
+    settings_value TEXT,
+    updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;

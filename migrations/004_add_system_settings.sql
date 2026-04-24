@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS system_settings (
+    settings_key   VARCHAR(128) NOT NULL PRIMARY KEY,
+    settings_value TEXT,
+    updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;

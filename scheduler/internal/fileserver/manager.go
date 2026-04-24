@@ -5,13 +5,10 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"blackbox-scheduler/internal/database"
-	"blackbox-scheduler/internal/docker"
 	"blackbox-scheduler/internal/fileprocessor"
 	"blackbox-scheduler/internal/remotefs"
 )
@@ -37,7 +34,6 @@ type FileServerManager struct {
 	processor *fileprocessor.ImprovedFileProcessor
 	db        *database.DB
 	mu        sync.RWMutex
-	hostFS    *docker.HostFS
 }
 
 type FileServerInstance struct {
@@ -48,17 +44,10 @@ type FileServerInstance struct {
 }
 
 func NewFileServerManager(processor *fileprocessor.ImprovedFileProcessor, db *database.DB) *FileServerManager {
-	hostFS, err := docker.NewHostFS()
-	if err != nil {
-		log.Printf("warning: failed to initialize hostFS: %v", err)
-		hostFS = nil
-	}
-
 	return &FileServerManager{
 		servers:   make(map[string]*FileServerInstance),
 		processor: processor,
 		db:        db,
-		hostFS:    hostFS,
 	}
 }
 
@@ -299,35 +288,6 @@ func (fsm *FileServerManager) GetStatus() map[string]interface{} {
 	}
 }
 
-func (fsm *FileServerManager) ReloadConfigSource(db *database.DB) error {
-	fsm.mu.Lock()
-	defer fsm.mu.Unlock()
-
-	configSourcePath, err := db.GetSystemSetting("config_source_path")
-	if err != nil {
-		return fmt.Errorf("failed to get config_source_path: %w", err)
-	}
-	if configSourcePath == "" {
-		log.Println("config_source_path not set, using default /app/configs")
-		configSourcePath = "/app/configs"
-	}
-
-	containerPath := configSourcePath
-	if fsm.hostFS != nil {
-		containerPath = fsm.convertHostPath(configSourcePath)
-		if err := fsm.hostFS.SetHostPath(configSourcePath); err != nil {
-			log.Printf("warning: hostFS.SetHostPath failed: %v", err)
-		}
-	}
-
-	for id, instance := range fsm.servers {
-		oldPath := instance.config.LocalPath
-		instance.config.LocalPath = containerPath
-		log.Printf("updated path for server %s: %s -> %s", id, fsm.convertBackHostPath(oldPath), configSourcePath)
-	}
-	return nil
-}
-
 func (fsm *FileServerManager) Close() error {
 	fsm.mu.Lock()
 	defer fsm.mu.Unlock()
@@ -393,32 +353,90 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-func (fsm *FileServerManager) convertHostPath(originalPath string) string {
-	if fsm.hostFS == nil {
-		return originalPath
-	}
+// ReloadConfigSource читает настройки источника из system_settings и применяет их.
+// Вызывается каждые 30 секунд из main loop scheduler.
+func (fsm *FileServerManager) ReloadConfigSource(db *database.DB) error {
+	fsm.mu.Lock()
+	defer fsm.mu.Unlock()
 
-	absPath, err := filepath.Abs(originalPath)
+	cfg, err := db.GetConfigSourceSettings()
 	if err != nil {
-		log.Printf("failed to get absolute path for %s: %v", originalPath, err)
-		return originalPath
+		return fmt.Errorf("failed to get config source settings: %w", err)
 	}
 
-	if !strings.HasPrefix(absPath, "/host") {
-		absPath = "/host" + absPath
+	switch cfg.Type {
+	case "smb":
+		smbServer := firstNonEmpty(cfg.SmbServer, os.Getenv("SMB_SERVER"))
+		smbShare := firstNonEmpty(cfg.SmbShare, os.Getenv("SMB_SHARE_NAME"))
+		smbUsername := firstNonEmpty(cfg.SmbUsername, os.Getenv("SMB_USERNAME"))
+		smbPassword := firstNonEmpty(cfg.SmbPassword, os.Getenv("SMB_PASSWORD"))
+		smbDomain := firstNonEmpty(cfg.SmbDomain, os.Getenv("SMB_DOMAIN"), "WORKGROUP")
+
+		// Если SMB сервер уже настроен с теми же параметрами — пропускаем
+		if inst, ok := fsm.servers["db-smb"]; ok {
+			if inst.config.Server == smbServer &&
+				inst.config.ShareName == smbShare &&
+				inst.config.Username == smbUsername &&
+				inst.config.Password == smbPassword &&
+				inst.config.Domain == smbDomain {
+				return nil
+			}
+			// Параметры изменились — размонтируем старый
+			if inst.fs != nil {
+				inst.fs.Unmount()
+			}
+			delete(fsm.servers, "db-smb")
+		}
+
+		// Передаём параметры через env — remotefs читает именно оттуда
+		os.Setenv("FILE_SERVER_TYPE", "smb")
+		os.Setenv("SMB_SERVER", smbServer)
+		os.Setenv("SMB_SHARE_NAME", smbShare)
+		os.Setenv("SMB_USERNAME", smbUsername)
+		os.Setenv("SMB_PASSWORD", smbPassword)
+		os.Setenv("SMB_DOMAIN", smbDomain)
+		os.Setenv("SMB_MOUNT_POINT", "/mnt/smb-db")
+
+		fs, err := remotefs.NewRemoteFileSystem()
+		if err != nil {
+			return fmt.Errorf("failed to create SMB filesystem: %w", err)
+		}
+		if err := fs.Mount(); err != nil {
+			return fmt.Errorf("failed to mount SMB: %w", err)
+		}
+		fsm.servers["db-smb"] = &FileServerInstance{
+			config: &FileServerConfig{
+				ID:        "db-smb",
+				Type:      "smb",
+				Server:    smbServer,
+				ShareName: smbShare,
+				Username:  smbUsername,
+				Password:  smbPassword,
+				Domain:    smbDomain,
+			},
+			fs:        fs,
+			lastCheck: time.Now(),
+			isHealthy: true,
+		}
+		log.Printf("SMB server configured from DB: //%s/%s", smbServer, smbShare)
+
+	case "local":
+		localPath := cfg.Path
+		for id, instance := range fsm.servers {
+			oldPath := instance.config.LocalPath
+			instance.config.LocalPath = localPath
+			log.Printf("updated path for server %s: %s -> %s", id, oldPath, localPath)
+		}
 	}
 
-	return absPath
+	return nil
 }
 
-func (fsm *FileServerManager) convertBackHostPath(containerPath string) string {
-	if fsm.hostFS == nil {
-		return containerPath
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
 	}
-
-	if strings.HasPrefix(containerPath, "/host") {
-		containerPath = strings.TrimPrefix(containerPath, "/host")
-	}
-
-	return containerPath
+	return ""
 }
