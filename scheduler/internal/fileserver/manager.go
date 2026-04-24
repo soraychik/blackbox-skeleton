@@ -366,6 +366,14 @@ func (fsm *FileServerManager) ReloadConfigSource(db *database.DB) error {
 
 	switch cfg.Type {
 	case "smb":
+		// При переключении на SMB удаляем DB-local источник.
+		if localInst, ok := fsm.servers["db-local"]; ok {
+			if localInst.fs != nil {
+				localInst.fs.Unmount()
+			}
+			delete(fsm.servers, "db-local")
+		}
+
 		smbServer := firstNonEmpty(cfg.SmbServer, os.Getenv("SMB_SERVER"))
 		smbShare := firstNonEmpty(cfg.SmbShare, os.Getenv("SMB_SHARE_NAME"))
 		smbUsername := firstNonEmpty(cfg.SmbUsername, os.Getenv("SMB_USERNAME"))
@@ -421,11 +429,36 @@ func (fsm *FileServerManager) ReloadConfigSource(db *database.DB) error {
 		log.Printf("SMB server configured from DB: //%s/%s", smbServer, smbShare)
 
 	case "local":
-		localPath := cfg.Path
-		for id, instance := range fsm.servers {
-			oldPath := instance.config.LocalPath
-			instance.config.LocalPath = localPath
-			log.Printf("updated path for server %s: %s -> %s", id, oldPath, localPath)
+		localPath := firstNonEmpty(cfg.Path, os.Getenv("LOCAL_FS_PATH"), "/app/configs")
+
+		// При переключении на local удаляем DB-SMB источник, чтобы не было двойного сканирования.
+		if smbInst, ok := fsm.servers["db-smb"]; ok {
+			if smbInst.fs != nil {
+				smbInst.fs.Unmount()
+			}
+			delete(fsm.servers, "db-smb")
+		}
+
+		if localInst, ok := fsm.servers["db-local"]; ok {
+			oldPath := localInst.config.LocalPath
+			localInst.config.Type = "local"
+			localInst.config.LocalPath = localPath
+			localInst.config.Enabled = true
+			localInst.isHealthy = true
+			log.Printf("updated local config source path: %s -> %s", oldPath, localPath)
+		} else {
+			fsm.servers["db-local"] = &FileServerInstance{
+				config: &FileServerConfig{
+					ID:        "db-local",
+					Type:      "local",
+					LocalPath: localPath,
+					Enabled:   true,
+				},
+				fs:        nil,
+				lastCheck: time.Now(),
+				isHealthy: true,
+			}
+			log.Printf("local config source configured from DB: %s", localPath)
 		}
 	}
 
