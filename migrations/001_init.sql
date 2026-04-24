@@ -9,6 +9,8 @@ SET character_set_results = utf8mb4;
 DROP TABLE IF EXISTS audit;
 DROP TABLE IF EXISTS diff_index;
 DROP TABLE IF EXISTS jobs;
+DROP TABLE IF EXISTS search_index;
+DROP TABLE IF EXISTS device_file_state;
 DROP TABLE IF EXISTS config_versions;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS site_mappings;
