@@ -21,7 +21,6 @@ import {
   Remove as RemoveIcon,
   Palette as PaletteIcon,
   Folder as FolderIcon,
-  Storage as StorageIcon,
   Security as SecurityIcon,
   Settings as SettingsIcon,
   Cloud as CloudIcon,
@@ -82,7 +81,7 @@ const Settings = () => {
     React.useContext(SettingsContext);
 
   const [fileServerType, setFileServerType] = React.useState('local');
-  const [configSourcePath, setConfigSourcePath] = React.useState('/app/configs');
+  const [configSourcePath, setConfigSourcePath] = React.useState('');
   const [smbUsername, setSmbUsername] = React.useState('');
   const [smbPassword, setSmbPassword] = React.useState('');
   const [smbDomain, setSmbDomain] = React.useState('WORKGROUP');
@@ -109,7 +108,6 @@ const Settings = () => {
         config_source_type: fileServerType,
         config_source_path: configSourcePath,
       };
-      // Добавляем SMB поля только если тип SMB
       if (fileServerType === 'smb') {
         payload.smb_username = smbUsername;
         if (smbPassword) payload.smb_password = smbPassword;
@@ -125,13 +123,19 @@ const Settings = () => {
     }
   };
 
-  const getPlaceholder = () => {
-    switch (fileServerType) {
-      case 'local': return '/app/configs';
-      case 'smb': return '//192.168.1.1/share';
-      case 'nfs': return '192.168.1.1:/share';
-      default: return '';
-    }
+  const pathConfig = {
+    local: {
+      placeholder: '/srv/configs   или   C:\\configs',
+      helper: 'Абсолютный путь к директории на хосте (Linux или Windows)',
+    },
+    smb: {
+      placeholder: '//192.168.1.1/configs',
+      helper: '//адрес_сервера/имя_ресурса',
+    },
+    nfs: {
+      placeholder: '//192.168.1.1/srv/configs',
+      helper: '//адрес_сервера/путь   или   сервер:/путь',
+    },
   };
 
   return (
@@ -140,7 +144,7 @@ const Settings = () => {
         Настройки
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-        Управление параметрами системы
+        Конфигурация системы
       </Typography>
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -194,69 +198,66 @@ const Settings = () => {
           <CardContent sx={{ p: 4 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
               <FolderIcon color="primary" sx={{ fontSize: 28 }} />
-              <Typography variant="h5" fontWeight={600}>Источник конфигов</Typography>
+              <Typography variant="h5" fontWeight={600}>Источник конфигурационных файлов</Typography>
             </Box>
             <Divider sx={{ mb: 3 }} />
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
-              Настройка подключения к источнику конфигурационных файлов
-            </Typography>
 
             <Grid container spacing={3}>
-              <Grid item xs={12} sm={6}>
+              {/* Тип подключения */}
+              <Grid item xs={12} sm={4}>
                 <FormControl fullWidth>
                   <InputLabel>Тип подключения</InputLabel>
                   <Select
                     label="Тип подключения"
                     value={fileServerType}
-                    onChange={(e) => setFileServerType(e.target.value)}
+                    onChange={(e) => {
+                      setFileServerType(e.target.value);
+                      setConfigSourcePath('');
+                    }}
                   >
                     <MenuItem value="local">Локальная папка</MenuItem>
-                    <MenuItem value="smb">SMB</MenuItem>
+                    <MenuItem value="smb">SMB / CIFS</MenuItem>
                     <MenuItem value="nfs">NFS</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} sm={6}>
+              {/* Путь */}
+              <Grid item xs={12} sm={8}>
                 <TextField
                   fullWidth
-                  label="Путь"
+                  label={fileServerType === 'local' ? 'Путь к директории' : 'Адрес сетевого ресурса'}
                   value={configSourcePath}
                   onChange={(e) => setConfigSourcePath(e.target.value)}
-                  placeholder={getPlaceholder()}
-                  helperText={
-                    fileServerType === 'local'
-                      ? 'Абсолютный путь к папке на хосте'
-                      : fileServerType === 'smb'
-                      ? '//server/share'
-                      : 'server:/path'
-                  }
+                  placeholder={pathConfig[fileServerType]?.placeholder}
+                  helperText={pathConfig[fileServerType]?.helper}
                 />
               </Grid>
 
+              {/* SMB: учётные данные */}
               {fileServerType === 'smb' && (
                 <>
-                  <Grid item xs={12} sm={6}>
+                  <Grid item xs={12} sm={4}>
                     <TextField
                       fullWidth
                       label="Имя пользователя"
-                      placeholder="username"
+                      placeholder="guest"
                       value={smbUsername}
                       onChange={(e) => setSmbUsername(e.target.value)}
                     />
                   </Grid>
-                  <Grid item xs={12} sm={6}>
+                  <Grid item xs={12} sm={4}>
                     <TextField
                       fullWidth
                       label="Пароль"
                       type="password"
-                      placeholder="********"
+                      placeholder="••••••••"
                       value={smbPassword}
                       onChange={(e) => setSmbPassword(e.target.value)}
-                      helperText="Оставьте пустым чтобы не менять"
+                      helperText="Оставьте пустым, чтобы сохранить текущий пароль"
                     />
                   </Grid>
-                  <Grid item xs={12} sm={6}>
+                  <Grid item xs={12} sm={4}>
                     <TextField
                       fullWidth
                       label="Домен"
@@ -268,6 +269,7 @@ const Settings = () => {
                 </>
               )}
 
+              {/* Кнопка сохранить */}
               <Grid item xs={12}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                   <Button
@@ -312,6 +314,62 @@ const Settings = () => {
           </CardContent>
         </Card>
 
+        {/* Параметры сканирования */}
+        <Card>
+          <CardContent sx={{ p: 4 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+              <SettingsIcon color="primary" sx={{ fontSize: 28 }} />
+              <Typography variant="h5" fontWeight={600}>Параметры сканирования</Typography>
+            </Box>
+            <Divider sx={{ mb: 3 }} />
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Параметры задаются через переменные окружения. Управление через интерфейс запланировано.
+            </Typography>
+            <Grid container spacing={3}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth label="Интервал автосканирования (сек)" type="number"
+                  placeholder="300" helperText="SCAN_INTERVAL_SECONDS — период между автоматическими сканированиями"
+                  inputProps={{ min: 5 }}
+                  disabled
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth label="Порог фиксации изменений" type="number"
+                  placeholder="0.1" helperText="DIFF_THRESHOLD — минимальная доля изменений для сохранения новой версии (0–1)"
+                  inputProps={{ step: 0.01, min: 0, max: 1 }}
+                  disabled
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth label="Таймаут подключения (сек)" type="number"
+                  placeholder="15" helperText="Максимальное время ожидания при установке соединения с источником"
+                  inputProps={{ min: 1 }}
+                  disabled
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth label="Максимальный размер файла (МБ)" type="number"
+                  placeholder="50" helperText="Файлы, превышающие указанный размер, будут пропущены при обработке"
+                  inputProps={{ min: 1 }}
+                  disabled
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth label="Количество повторных попыток" type="number"
+                  placeholder="3" helperText="Число повторных попыток при сбое подключения к источнику"
+                  inputProps={{ min: 0, max: 10 }}
+                  disabled
+                />
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
+
         {/* MinIO */}
         <Card>
           <CardContent sx={{ p: 4 }}>
@@ -346,56 +404,6 @@ const Settings = () => {
           </CardContent>
         </Card>
 
-        {/* Параметры сканирования */}
-        <Card>
-          <CardContent sx={{ p: 4 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
-              <SettingsIcon color="primary" sx={{ fontSize: 28 }} />
-              <Typography variant="h5" fontWeight={600}>Параметры сканирования</Typography>
-            </Box>
-            <Divider sx={{ mb: 3 }} />
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
-              Настройки процесса сканирования устройств
-            </Typography>
-            <Grid container spacing={3}>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth label="Порог изменений (diff)" type="number"
-                  placeholder="0.1" helperText="Минимальный процент изменений для сохранения версии"
-                  inputProps={{ step: 0.01, min: 0, max: 1 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth label="Интервал сканирования (сек)" type="number"
-                  placeholder="30" helperText="Интервал между автоматическими сканированиями"
-                  inputProps={{ min: 10 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth label="Таймаут (сек)" type="number"
-                  placeholder="30" helperText="Максимальное время ожидания ответа от устройства"
-                  inputProps={{ min: 1 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth label="Макс. размер файла (MB)" type="number"
-                  placeholder="50" helperText="Ограничение размера обрабатываемого файла"
-                  inputProps={{ min: 1 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth label="Попытки повтора" type="number"
-                  placeholder="3" helperText="Количество попыток при ошибке подключения"
-                  inputProps={{ min: 0, max: 10 }}
-                />
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
       </Box>
     </Box>
   );

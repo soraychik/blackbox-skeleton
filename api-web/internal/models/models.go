@@ -145,17 +145,19 @@ type DeviceVersionRow struct {
 }
 
 type SystemSettings struct {
-	ConfigSourceType string `json:"config_source_type"`
-	ConfigSourcePath string `json:"config_source_path"`
-	SmbUsername      string `json:"smb_username,omitempty"`
-	SmbDomain        string `json:"smb_domain,omitempty"`
+	ConfigSourceType    string `json:"config_source_type"`
+	ConfigSourcePath    string `json:"config_source_path"`
+	SmbUsername         string `json:"smb_username,omitempty"`
+	SmbDomain           string `json:"smb_domain,omitempty"`
+	ScanIntervalSeconds int    `json:"scan_interval_seconds"`
 	// SmbPassword намеренно не возвращается в ответе API
 }
 
 type SettingsUpdateRequest struct {
-	ConfigSourceType string `json:"config_source_type"`
-	ConfigSourcePath string `json:"config_source_path"`
-	SmbUsername      string `json:"smb_username"`
-	SmbPassword      string `json:"smb_password"`
-	SmbDomain        string `json:"smb_domain"`
+	ConfigSourceType    string `json:"config_source_type"`
+	ConfigSourcePath    string `json:"config_source_path"`
+	SmbUsername         string `json:"smb_username"`
+	SmbPassword         string `json:"smb_password"`
+	SmbDomain           string `json:"smb_domain"`
+	ScanIntervalSeconds int    `json:"scan_interval_seconds"`
 }

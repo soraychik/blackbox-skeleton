@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +54,9 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 	}
 	if req.SmbDomain != "" {
 		updates["smb_domain"] = req.SmbDomain
+	}
+	if req.ScanIntervalSeconds >= 5 {
+		updates["scan_interval_seconds"] = strconv.Itoa(req.ScanIntervalSeconds)
 	}
 
 	for key, value := range updates {
@@ -122,6 +126,10 @@ func (h *SettingsHandler) loadSettings() (*models.SystemSettings, error) {
 			settings.SmbUsername = value
 		case "smb_domain":
 			settings.SmbDomain = value
+		case "scan_interval_seconds":
+			if n, err := strconv.Atoi(value); err == nil {
+				settings.ScanIntervalSeconds = n
+			}
 		// Пароль намеренно не возвращаем в ответе
 		}
 	}

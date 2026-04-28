@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"time"
+	"strconv"
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -632,15 +633,16 @@ func (db *DB) GetAllFileStates() (map[string]*FileState, error) {
 
 // ConfigSourceSettings хранит настройки источника конфигов из system_settings.
 type ConfigSourceSettings struct {
-	Type        string // local, smb, nfs
-	Path        string // локальный путь или share path
-	SmbServer   string
-	SmbShare    string
-	SmbUsername string
-	SmbPassword string
-	SmbDomain   string
-	NfsServer   string
-	NfsPath     string
+	Type                string // local, smb, nfs
+	Path                string // локальный путь или share path
+	SmbServer           string
+	SmbShare            string
+	SmbUsername         string
+	SmbPassword         string
+	SmbDomain           string
+	NfsServer           string
+	NfsPath             string
+	ScanIntervalSeconds int
 }
 
 // GetConfigSourceSettings читает все настройки источника одним запросом.
@@ -649,7 +651,8 @@ func (db *DB) GetConfigSourceSettings() (*ConfigSourceSettings, error) {
 		`SELECT settings_key, settings_value FROM system_settings
 		 WHERE settings_key IN (
 			'config_source_type','config_source_path',
-			'smb_username','smb_password','smb_domain'
+			'smb_username','smb_password','smb_domain',
+			'scan_interval_seconds'
 		 )`,
 	)
 	if err != nil {
@@ -680,6 +683,10 @@ func (db *DB) GetConfigSourceSettings() (*ConfigSourceSettings, error) {
 		case "smb_domain":
 			if value != "" {
 				s.SmbDomain = value
+			}
+		case "scan_interval_seconds":
+			if n, err := strconv.Atoi(value); err == nil && n >= 5 {
+				s.ScanIntervalSeconds = n
 			}
 		}
 	}

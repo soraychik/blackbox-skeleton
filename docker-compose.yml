@@ -74,7 +74,6 @@ services:
     devices:
       - /dev/fuse
     volumes:
-      - ./scheduler/configs:/app/configs
       - /var/run/docker.sock:/var/run/docker.sock
       - /:/host:ro
     env_file:

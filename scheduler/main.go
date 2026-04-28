@@ -46,101 +46,89 @@ func runScan(serverManager *fileserver.FileServerManager) {
 	setScanFinished()
 }
 
-func main() {
-	log.Println("launching blackbox scheduler with support for multiple file servers...")
+func loadScanInterval(db *database.DB, fallbackSec int) time.Duration {
+	if cfg, err := db.GetConfigSourceSettings(); err == nil && cfg.ScanIntervalSeconds >= 5 {
+		return time.Duration(cfg.ScanIntervalSeconds) * time.Second
+	}
+	if fallbackSec < 5 {
+		fallbackSec = 5
+	}
+	return time.Duration(fallbackSec) * time.Second
+}
 
-	// Ждём пока MySQL запустится
+func main() {
+	log.Println("launching blackbox scheduler...")
+
 	if err := waitForMySQL(); err != nil {
 		log.Fatalf("unable to wait for mysql to start: %v", err)
 	}
 
-	// Подключаемся к БД
 	db, err := database.NewDB()
 	if err != nil {
 		log.Fatalf("failed to connect to the database: %v", err)
 	}
 	defer db.Close()
 
-	// Определяем настройки хранения
 	useMinIO := os.Getenv("USE_MINIO") == "true"
 	diffThreshold := getEnvFloat("DIFF_THRESHOLD", 0.1)
+	log.Printf("storage: minio=%t, thresholdDiff=%.2f", useMinIO, diffThreshold)
 
-	log.Printf("storage configuration: minio=%t, thresholdDiff=%.2f", useMinIO, diffThreshold)
-
-	// Создаём улучшенный процессор файлов
 	processor, err := fileprocessor.NewImprovedFileProcessor(useMinIO, diffThreshold)
 	if err != nil {
-		log.Fatalf("failed to create enhanced file processor: %v", err)
+		log.Fatalf("failed to create file processor: %v", err)
 	}
 	defer processor.Close()
 
-	// Создаем менеджер файловых серверов
 	serverManager := fileserver.NewFileServerManager(processor, db)
-
-	// Загружаем конфигурации серверов
 	if err := serverManager.LoadServers(); err != nil {
 		log.Fatalf("failed to load file server configurations: %v", err)
 	}
-
-	// Монтируем все серверы
-	if err := serverManager.MountAllServers(); err != nil {
-		log.Printf("warning: failed to mount some file servers: %v", err)
-		log.Println("continuing to work with running servers...")
-	}
 	defer serverManager.Close()
 
-	// Интервал между сканированиями из .env (секунды); отсчёт — после завершения полного сканирования
-	scanIntervalSec := getEnvInt("SCAN_INTERVAL_SECONDS", 30)
-	if scanIntervalSec < 5 {
-		scanIntervalSec = 5
-	}
-	scanInterval := time.Duration(scanIntervalSec) * time.Second
-	log.Printf("interval between scans: %v (count after full scan completes)", scanInterval)
-
-	// Каналы для принудительного сканирования и перезагрузки настроек
 	triggerScan := make(chan struct{}, 1)
 	triggerReload := make(chan struct{}, 1)
 	triggerPort := getEnv("SCHEDULER_TRIGGER_PORT", "9090")
 	go runTriggerServer(":"+triggerPort, triggerScan, triggerReload)
-	log.Printf("force scan server is listening on port %s", triggerPort)
+	log.Printf("trigger server listening on port %s", triggerPort)
 
-	// Сразу обрабатываем все файлы при запуске; следующее сканирование — через scanInterval после завершения
-	log.Println("performing an initial file scan...")
-	runScan(serverManager)
-	log.Println("initial scan complete, waiting for next scan...")
+	// Применяем настройки источника из DB при старте (без сканирования)
+	if err := serverManager.ReloadConfigSource(db); err != nil {
+		log.Printf("warning: failed to load config source from DB: %v", err)
+	}
 
-	// Таймер следующего сканирования (сбрасывается после каждого полного сканирования и после принудительного)
-	nextScanTimer := time.NewTimer(scanInterval)
-	defer nextScanTimer.Stop()
+	scanInterval := loadScanInterval(db, getEnvInt("SCAN_INTERVAL_SECONDS", 300))
+	log.Printf("scan interval: %v", scanInterval)
 
 	healthTicker := time.NewTicker(60 * time.Second)
 	defer healthTicker.Stop()
 
-	if err := serverManager.ReloadConfigSource(db); err != nil {
-		log.Printf("warning: failed to reload config source from settings: %v", err)
-	}
+	// timerChan == nil до первого ручного запуска сканирования.
+	// nil-канал в select блокируется навсегда.
+	var timerChan <-chan time.Time
 
-	log.Println("scheduler started")
+	log.Println("scheduler ready, waiting for first scan trigger")
 
 	for {
 		select {
-		case <-nextScanTimer.C:
-			log.Println("checking for new configuration files...")
+		case <-timerChan:
+			log.Println("periodic scan started")
 			runScan(serverManager)
-			log.Println("file processing cycle completed, waiting until next scan...")
-			nextScanTimer.Reset(scanInterval)
+			log.Println("periodic scan complete")
+			timerChan = time.After(scanInterval)
 		case <-triggerScan:
-			log.Println("forced scanning on demand")
+			log.Println("manual scan triggered")
 			runScan(serverManager)
-			log.Println("forced scan complete, waiting until next automatic scan...")
-			nextScanTimer.Reset(scanInterval)
+			log.Println("scan complete, periodic scanning active")
+			timerChan = time.After(scanInterval)
 		case <-triggerReload:
-			log.Println("reloading config source settings...")
+			log.Println("reloading config source...")
 			if err := serverManager.ReloadConfigSource(db); err != nil {
-				log.Printf("reload config source failed: %v", err)
+				log.Printf("reload failed: %v", err)
 			} else {
 				log.Println("config source reloaded")
 			}
+			scanInterval = loadScanInterval(db, getEnvInt("SCAN_INTERVAL_SECONDS", 300))
+			log.Printf("scan interval: %v", scanInterval)
 		case <-healthTicker.C:
 			serverManager.CheckHealth()
 		}
@@ -196,7 +184,7 @@ func runTriggerServer(addr string, triggerChan chan<- struct{}, reloadChan chan<
 		w.Write([]byte(fmt.Sprintf(`{"in_progress":%t,"last_started_at":"%s","last_finished_at":"%s"}`, inProgress, lastStarted, lastFinished)))
 	})
 	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Printf("forced scan server error: %v", err)
+		log.Printf("trigger server error: %v", err)
 	}
 }
 
@@ -225,10 +213,8 @@ func getEnvFloat(key string, defaultValue float64) float64 {
 	return defaultValue
 }
 
-// waitForMySQL ждёт пока MySQL станет доступен
 func waitForMySQL() error {
 	log.Println("waiting for mysql to be ready...")
-
 	maxAttempts := 30
 	for i := 0; i < maxAttempts; i++ {
 		db, err := database.NewDB()
@@ -237,10 +223,8 @@ func waitForMySQL() error {
 			log.Println("mysql is ready")
 			return nil
 		}
-
-		log.Printf("attempt %d/%d: mysql is not ready yet, retrying in 2 seconds...", i+1, maxAttempts)
+		log.Printf("attempt %d/%d: mysql not ready, retrying in 2s...", i+1, maxAttempts)
 		time.Sleep(2 * time.Second)
 	}
-
 	return fmt.Errorf("mysql was not ready after %d attempts", maxAttempts)
 }
