@@ -79,6 +79,10 @@ services:
       - /:/host:ro
     env_file:
       - .env
+    environment:
+      # При network_mode: host Docker DNS недоступен — подключаемся через хостовые порты
+      DATABASE_HOST: "127.0.0.1"
+      MINIO_ENDPOINT: "127.0.0.1:9000"
     depends_on:
       mysql-db:
         condition: service_healthy
@@ -86,8 +90,7 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    networks:
-      - blackbox-net
+    network_mode: host
 
   api-web:
     build: ./api-web
@@ -97,6 +100,11 @@ services:
       - "8080:8080"
     env_file:
       - .env
+    environment:
+      # Scheduler слушает на хосте (network_mode: host) — достучаться можно через host-gateway
+      SCHEDULER_TRIGGER_URL: "http://host.docker.internal:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       mysql-db:
         condition: service_healthy

@@ -34,6 +34,23 @@ func NewRemoteFileSystem() (*RemoteFileSystem, error) {
 	return NewRemoteFileSystemFromEnv("")
 }
 
+// NewRemoteFileSystemFromConfig создает NFS файловую систему из явных параметров.
+func NewRemoteFileSystemFromConfig(server, sharePath, mountPoint string) (*RemoteFileSystem, error) {
+	if server == "" || sharePath == "" {
+		return nil, fmt.Errorf("nfs_server and nfs_share_path must be set")
+	}
+	if mountPoint == "" {
+		mountPoint = "/mnt/nfs"
+	}
+	return &RemoteFileSystem{
+		fsType:       NFS,
+		server:       server,
+		sharePath:    sharePath,
+		mountPoint:   mountPoint,
+		mountOptions: []string{"soft", "intr", "timeo=30", "retrans=3"},
+	}, nil
+}
+
 // NewRemoteFileSystemFromEnv создает файловую систему из переменных окружения с префиксом
 func NewRemoteFileSystemFromEnv(prefix string) (*RemoteFileSystem, error) {
 	fsType := FileSystemType(getEnvWithPrefix(prefix, "FILE_SERVER_TYPE"))

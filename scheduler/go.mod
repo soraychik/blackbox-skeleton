@@ -5,19 +5,21 @@ module blackbox-scheduler
 go 1.24.0
 
 require (
-	github.com/docker/docker v27.5.1+incompatible
 	github.com/docker/cli v27.5.1+incompatible
+	github.com/docker/docker v27.5.1+incompatible
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/minio/minio-go/v7 v7.0.98
-	github.com/sergi/go-diff v1.4.0
 	github.com/moby/moby v27.5.1+incompatible
+	github.com/sergi/go-diff v1.4.0
 )
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/geoffgarside/ber v1.1.0 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/hirochachacha/go-smb2 v1.1.0 // indirect
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.11 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect

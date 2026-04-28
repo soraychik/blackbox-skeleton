@@ -1,7 +1,9 @@
 package fileserver
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"os"
@@ -10,7 +12,9 @@ import (
 
 	"blackbox-scheduler/internal/database"
 	"blackbox-scheduler/internal/fileprocessor"
+	"blackbox-scheduler/internal/models"
 	"blackbox-scheduler/internal/remotefs"
+	"blackbox-scheduler/internal/smbclient"
 )
 
 const fileWorkers = 20
@@ -38,7 +42,8 @@ type FileServerManager struct {
 
 type FileServerInstance struct {
 	config    *FileServerConfig
-	fs        *remotefs.RemoteFileSystem
+	fs        *remotefs.RemoteFileSystem // для NFS (через mount)
+	smbClient *smbclient.Client          // для SMB (pure-Go, без mount)
 	lastCheck time.Time
 	isHealthy bool
 }
@@ -67,67 +72,75 @@ func (fsm *FileServerManager) LoadServers() error {
 			continue
 		}
 		fsm.servers[id] = instance
-		if config.Type == "local" {
-			log.Printf("file server added: %s (local folder: %s)", id, config.LocalPath)
-		} else {
+		switch config.Type {
+		case "local":
+			log.Printf("file server added: %s (local: %s)", id, config.LocalPath)
+		case "smb":
+			log.Printf("file server added: %s (smb://%s/%s)", id, config.Server, config.ShareName)
+		default:
 			log.Printf("file server added: %s (%s://%s)", id, config.Type, config.Server)
 		}
 	}
 
 	if len(fsm.servers) == 0 {
-		log.Printf("warning: no file sources are configured. scanning will not occur.")
+		log.Printf("warning: no file sources configured, scanning will not occur")
 	}
 	return nil
 }
 
 func (fsm *FileServerManager) createServerInstance(id string, config *FileServerConfig) (*FileServerInstance, error) {
-	if config.Type == "local" {
-		return &FileServerInstance{
-			config:    config,
-			fs:        nil,
-			lastCheck: time.Now(),
-			isHealthy: true,
-		}, nil
+	switch config.Type {
+	case "local":
+		return &FileServerInstance{config: config, isHealthy: true}, nil
+
+	case "smb":
+		client := smbclient.New(config.Server, config.ShareName, config.Username, config.Password, config.Domain)
+		return &FileServerInstance{config: config, smbClient: client, isHealthy: false}, nil
+
+	default: // nfs и прочее через mount
+		fs, err := remotefs.NewRemoteFileSystemFromConfig(config.Server, config.SharePath, config.MountPoint)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create remote filesystem: %w", err)
+		}
+		return &FileServerInstance{config: config, fs: fs, isHealthy: false}, nil
 	}
-	fs, err := remotefs.NewRemoteFileSystem()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create remote file system: %w", err)
-	}
-	return &FileServerInstance{
-		config:    config,
-		fs:        fs,
-		lastCheck: time.Now(),
-		isHealthy: false,
-	}, nil
 }
 
 func (fsm *FileServerManager) MountAllServers() error {
-	fsm.mu.RLock()
-	defer fsm.mu.RUnlock()
+	fsm.mu.Lock()
+	defer fsm.mu.Unlock()
 
-	var errors []string
+	var errs []string
 	for id, instance := range fsm.servers {
-		if instance.fs == nil {
-			instance.isHealthy = true
-			continue
-		}
-		if err := instance.fs.Mount(); err != nil {
-			errors = append(errors, fmt.Sprintf("server %s: %v", id, err))
-			instance.isHealthy = false
-		} else {
-			instance.isHealthy = true
-			log.Printf("mounted server %s", id)
+		switch {
+		case instance.smbClient != nil:
+			if err := instance.smbClient.Connect(); err != nil {
+				errs = append(errs, fmt.Sprintf("smb %s: %v", id, err))
+				instance.isHealthy = false
+			} else {
+				instance.isHealthy = true
+			}
+		case instance.fs != nil:
+			if err := instance.fs.Mount(); err != nil {
+				errs = append(errs, fmt.Sprintf("nfs %s: %v", id, err))
+				instance.isHealthy = false
+			} else {
+				instance.isHealthy = true
+				log.Printf("mounted server %s", id)
+			}
+		default:
+			instance.isHealthy = true // local
 		}
 	}
-	if len(errors) > 0 {
-		return fmt.Errorf("mounting errors: %v", errors)
+	if len(errs) > 0 {
+		return fmt.Errorf("mount errors: %v", errs)
 	}
 	return nil
 }
 
 func (fsm *FileServerManager) ProcessAllServers() {
 	fsm.mu.RLock()
-	servers := make(map[string]*FileServerInstance)
+	servers := make(map[string]*FileServerInstance, len(fsm.servers))
 	for k, v := range fsm.servers {
 		servers[k] = v
 	}
@@ -148,10 +161,12 @@ func (fsm *FileServerManager) ProcessAllServers() {
 	wg.Wait()
 }
 
-// processServer обрабатывает файлы сервера в два этапа:
-// 1. pre-check: один SELECT всей таблицы + os.Stat — без чтения контента файлов
-// 2. параллельная обработка через семафор — только изменившихся файлов
 func (fsm *FileServerManager) processServer(id string, instance *FileServerInstance) {
+	if instance.smbClient != nil {
+		fsm.processSMBServer(id, instance)
+		return
+	}
+
 	var configDir string
 	if instance.config.Type == "local" {
 		configDir = instance.config.LocalPath
@@ -167,10 +182,6 @@ func (fsm *FileServerManager) processServer(id string, instance *FileServerInsta
 	}
 	log.Printf("%d files found on server %s", len(files), id)
 
-	// --- Этап 1: pre-check ---
-	// Один SELECT вместо N — загружаем всё состояние в память,
-	// потом сравниваем локально без обращений к БД.
-	// При 20k файлов: было ~20k запросов (~30 сек), стало 1 запрос (~50 мс).
 	fileStates, err := fsm.db.GetAllFileStates()
 	if err != nil {
 		log.Printf("GetAllFileStates failed for server %s: %v, processing all files", id, err)
@@ -199,7 +210,6 @@ func (fsm *FileServerManager) processServer(id string, instance *FileServerInsta
 		return
 	}
 
-	// --- Этап 2: параллельная обработка + запись сразу ---
 	sem := make(chan struct{}, fileWorkers)
 	var wg sync.WaitGroup
 
@@ -210,7 +220,6 @@ func (fsm *FileServerManager) processServer(id string, instance *FileServerInsta
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-
 			if err := fsm.processSingleFile(id, fp); err != nil {
 				log.Printf("error processing file %s from server %s: %v", fp, id, err)
 			}
@@ -221,7 +230,92 @@ func (fsm *FileServerManager) processServer(id string, instance *FileServerInsta
 	instance.lastCheck = time.Now()
 }
 
-// processSingleFile читает файл, проверяет hash, сохраняет версию и обновляет file state.
+func (fsm *FileServerManager) processSMBServer(id string, instance *FileServerInstance) {
+	entries, err := instance.smbClient.ListFiles()
+	if err != nil {
+		log.Printf("smb list files failed for %s: %v", id, err)
+		instance.isHealthy = false
+		return
+	}
+	log.Printf("%d files found on SMB server %s", len(entries), id)
+
+	fileStates, err := fsm.db.GetAllFileStates()
+	if err != nil {
+		log.Printf("GetAllFileStates failed for SMB server %s: %v, processing all files", id, err)
+		fileStates = map[string]*database.FileState{}
+	}
+
+	var candidates []smbclient.FileEntry
+	skipped := 0
+	for _, e := range entries {
+		state, ok := fileStates[e.Name]
+		if ok && state.Size == e.Size && state.ModTime.Equal(e.ModTime) {
+			skipped++
+			continue
+		}
+		candidates = append(candidates, e)
+	}
+	log.Printf("SMB server %s: %d to process, %d skipped by mtime+size", id, len(candidates), skipped)
+
+	if len(candidates) == 0 {
+		instance.lastCheck = time.Now()
+		return
+	}
+
+	sem := make(chan struct{}, fileWorkers)
+	var wg sync.WaitGroup
+
+	for _, entry := range candidates {
+		wg.Add(1)
+		e := entry
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if err := fsm.processSMBFile(id, instance.smbClient, e); err != nil {
+				log.Printf("error processing SMB file %s from server %s: %v", e.Name, id, err)
+			}
+		}()
+	}
+
+	wg.Wait()
+	instance.lastCheck = time.Now()
+}
+
+// processSMBFile читает файл через SMB и сохраняет версию без обращения к локальной ФС.
+func (fsm *FileServerManager) processSMBFile(serverID string, client *smbclient.Client, entry smbclient.FileEntry) error {
+	content, err := client.ReadFile(entry.Name)
+	if err != nil {
+		return fmt.Errorf("read file: %w", err)
+	}
+
+	normalizedContent := bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
+	hash := fmt.Sprintf("%x", sha256.Sum256(normalizedContent))
+
+	fileInfo := &models.FileInfo{
+		Name:     entry.Name,
+		Path:     fmt.Sprintf("//%s/%s/%s", client.Server(), client.ShareName(), entry.Name),
+		Size:     entry.Size,
+		ModTime:  entry.ModTime,
+		Content:  normalizedContent,
+		Hash:     hash,
+		Hostname: entry.Name,
+	}
+
+	ctx := context.Background()
+	_, err = fsm.processor.SaveVersion(ctx, fsm.db, fileInfo)
+	if err != nil {
+		return fmt.Errorf("save version: %w", err)
+	}
+
+	if err := fsm.db.UpsertFileState(fileInfo.Hostname, fileInfo.Size, fileInfo.ModTime); err != nil {
+		log.Printf("warning: failed to upsert file state for %s: %v", fileInfo.Hostname, err)
+	}
+
+	log.Printf("processed SMB version for %s-%s", serverID, fileInfo.Hostname)
+	return nil
+}
+
 func (fsm *FileServerManager) processSingleFile(serverID, filePath string) error {
 	fileInfo, err := fsm.processor.ProcessFile(filePath)
 	if err != nil {
@@ -234,7 +328,6 @@ func (fsm *FileServerManager) processSingleFile(serverID, filePath string) error
 		return fmt.Errorf("failed to save version: %w", err)
 	}
 
-	// Обновляем file state чтобы следующий запуск пропустил этот файл по mtime/size
 	if err := fsm.db.UpsertFileState(fileInfo.Hostname, fileInfo.Size, fileInfo.ModTime); err != nil {
 		log.Printf("warning: failed to upsert file state for %s: %v", fileInfo.Hostname, err)
 	}
@@ -248,23 +341,34 @@ func (fsm *FileServerManager) CheckHealth() {
 	defer fsm.mu.RUnlock()
 
 	for id, instance := range fsm.servers {
-		if instance.fs == nil {
-			continue
-		}
-		healthy := true
-		if err := instance.fs.CheckConnection(); err != nil {
-			healthy = false
-			log.Printf("health check failed for server %s: %v", id, err)
-		}
-		if !healthy && instance.isHealthy {
-			log.Printf("server %s became unhealthy, attempting remount", id)
-			if err := instance.fs.Mount(); err != nil {
-				log.Printf("failed to remount server %s: %v", id, err)
-			} else {
-				healthy = true
+		switch {
+		case instance.smbClient != nil:
+			_, err := instance.smbClient.ListFiles()
+			if err != nil {
+				log.Printf("smb health check failed for %s: %v, reconnecting", id, err)
+				if err2 := instance.smbClient.Connect(); err2 != nil {
+					log.Printf("smb reconnect failed for %s: %v", id, err2)
+					instance.isHealthy = false
+				} else {
+					instance.isHealthy = true
+				}
 			}
+		case instance.fs != nil:
+			healthy := true
+			if err := instance.fs.CheckConnection(); err != nil {
+				healthy = false
+				log.Printf("health check failed for server %s: %v", id, err)
+			}
+			if !healthy && instance.isHealthy {
+				log.Printf("server %s became unhealthy, attempting remount", id)
+				if err := instance.fs.Mount(); err != nil {
+					log.Printf("failed to remount server %s: %v", id, err)
+				} else {
+					healthy = true
+				}
+			}
+			instance.isHealthy = healthy
 		}
-		instance.isHealthy = healthy
 	}
 }
 
@@ -292,17 +396,120 @@ func (fsm *FileServerManager) Close() error {
 	fsm.mu.Lock()
 	defer fsm.mu.Unlock()
 
-	var errors []error
+	var errs []error
 	for id, instance := range fsm.servers {
-		if instance.fs != nil {
+		switch {
+		case instance.smbClient != nil:
+			instance.smbClient.Disconnect()
+		case instance.fs != nil:
 			if err := instance.fs.Unmount(); err != nil {
-				errors = append(errors, fmt.Errorf("failed to unmount server %s: %w", id, err))
+				errs = append(errs, fmt.Errorf("unmount %s: %w", id, err))
 			}
 		}
 	}
-	if len(errors) > 0 {
-		return fmt.Errorf("unmount errors: %v", errors)
+	if len(errs) > 0 {
+		return fmt.Errorf("close errors: %v", errs)
 	}
+	return nil
+}
+
+// ReloadConfigSource читает настройки источника из system_settings и применяет их.
+func (fsm *FileServerManager) ReloadConfigSource(db *database.DB) error {
+	fsm.mu.Lock()
+	defer fsm.mu.Unlock()
+
+	cfg, err := db.GetConfigSourceSettings()
+	if err != nil {
+		return fmt.Errorf("failed to get config source settings: %w", err)
+	}
+
+	switch cfg.Type {
+	case "smb":
+		if localInst, ok := fsm.servers["db-local"]; ok {
+			if localInst.fs != nil {
+				localInst.fs.Unmount()
+			}
+			delete(fsm.servers, "db-local")
+		}
+
+		smbServer := firstNonEmpty(cfg.SmbServer, os.Getenv("SMB_SERVER"))
+		smbShare := firstNonEmpty(cfg.SmbShare, os.Getenv("SMB_SHARE_NAME"))
+		smbUsername := firstNonEmpty(cfg.SmbUsername, os.Getenv("SMB_USERNAME"))
+		smbPassword := firstNonEmpty(cfg.SmbPassword, os.Getenv("SMB_PASSWORD"))
+		smbDomain := firstNonEmpty(cfg.SmbDomain, os.Getenv("SMB_DOMAIN"), "WORKGROUP")
+
+		// Пропускаем если параметры не изменились
+		if inst, ok := fsm.servers["db-smb"]; ok {
+			c := inst.smbClient
+			if c != nil &&
+				c.Server() == smbServer &&
+				c.ShareName() == smbShare &&
+				inst.config.Username == smbUsername &&
+				inst.config.Password == smbPassword &&
+				inst.config.Domain == smbDomain {
+				return nil
+			}
+			inst.smbClient.Disconnect()
+			delete(fsm.servers, "db-smb")
+		}
+
+		if smbServer == "" || smbShare == "" {
+			log.Printf("smb: server or share not configured, skipping")
+			return nil
+		}
+
+		client := smbclient.New(smbServer, smbShare, smbUsername, smbPassword, smbDomain)
+		if err := client.Connect(); err != nil {
+			return fmt.Errorf("smb connect //%s/%s: %w", smbServer, smbShare, err)
+		}
+
+		fsm.servers["db-smb"] = &FileServerInstance{
+			config: &FileServerConfig{
+				ID:        "db-smb",
+				Type:      "smb",
+				Server:    smbServer,
+				ShareName: smbShare,
+				Username:  smbUsername,
+				Password:  smbPassword,
+				Domain:    smbDomain,
+				Enabled:   true,
+			},
+			smbClient: client,
+			lastCheck: time.Now(),
+			isHealthy: true,
+		}
+		log.Printf("SMB server configured from DB: //%s/%s", smbServer, smbShare)
+
+	case "local":
+		localPath := firstNonEmpty(cfg.Path, os.Getenv("LOCAL_FS_PATH"), "/app/configs")
+
+		if smbInst, ok := fsm.servers["db-smb"]; ok {
+			if smbInst.smbClient != nil {
+				smbInst.smbClient.Disconnect()
+			}
+			delete(fsm.servers, "db-smb")
+		}
+
+		if localInst, ok := fsm.servers["db-local"]; ok {
+			oldPath := localInst.config.LocalPath
+			localInst.config.LocalPath = localPath
+			localInst.isHealthy = true
+			log.Printf("updated local config source path: %s -> %s", oldPath, localPath)
+		} else {
+			fsm.servers["db-local"] = &FileServerInstance{
+				config: &FileServerConfig{
+					ID:        "db-local",
+					Type:      "local",
+					LocalPath: localPath,
+					Enabled:   true,
+				},
+				lastCheck: time.Now(),
+				isHealthy: true,
+			}
+			log.Printf("local config source configured from DB: %s", localPath)
+		}
+	}
+
 	return nil
 }
 
@@ -321,18 +528,32 @@ func getConfigsFromEnv() map[string]*FileServerConfig {
 	log.Println("production mode: remote file servers are used")
 
 	if getEnv("FILE_SERVER_ENABLED", "true") == "true" {
-		configs["server1"] = &FileServerConfig{
-			ID:         "server1",
-			Type:       getEnv("FILE_SERVER_TYPE", "nfs"),
-			Server:     getEnv("NFS_SERVER", "192.168.70.149"),
-			SharePath:  getEnv("NFS_SHARE_PATH", "/srv/share"),
-			MountPoint: getEnv("NFS_MOUNT_POINT", "/mnt/nfs"),
-			Username:   getEnv("SMB_USERNAME", "guest"),
-			Password:   getEnv("SMB_PASSWORD", ""),
-			Domain:     getEnv("SMB_DOMAIN", "WORKGROUP"),
-			Enabled:    true,
+		fsType := getEnv("FILE_SERVER_TYPE", "nfs")
+		var cfg *FileServerConfig
+		if fsType == "smb" {
+			cfg = &FileServerConfig{
+				ID:        "server1",
+				Type:      "smb",
+				Server:    getEnv("SMB_SERVER", ""),
+				ShareName: getEnv("SMB_SHARE_NAME", ""),
+				Username:  getEnv("SMB_USERNAME", "guest"),
+				Password:  getEnv("SMB_PASSWORD", ""),
+				Domain:    getEnv("SMB_DOMAIN", "WORKGROUP"),
+				Enabled:   true,
+			}
+		} else {
+			cfg = &FileServerConfig{
+				ID:         "server1",
+				Type:       fsType,
+				Server:     getEnv("NFS_SERVER", ""),
+				SharePath:  getEnv("NFS_SHARE_PATH", "/srv/share"),
+				MountPoint: getEnv("NFS_MOUNT_POINT", "/mnt/nfs"),
+				Enabled:    true,
+			}
 		}
+		configs["server1"] = cfg
 	}
+
 	if getEnv("FILE_SERVER_2_ENABLED", "false") == "true" {
 		configs["server2"] = &FileServerConfig{
 			ID:         "server2",
@@ -353,118 +574,6 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-// ReloadConfigSource читает настройки источника из system_settings и применяет их.
-// Вызывается каждые 30 секунд из main loop scheduler.
-func (fsm *FileServerManager) ReloadConfigSource(db *database.DB) error {
-	fsm.mu.Lock()
-	defer fsm.mu.Unlock()
-
-	cfg, err := db.GetConfigSourceSettings()
-	if err != nil {
-		return fmt.Errorf("failed to get config source settings: %w", err)
-	}
-
-	switch cfg.Type {
-	case "smb":
-		// При переключении на SMB удаляем DB-local источник.
-		if localInst, ok := fsm.servers["db-local"]; ok {
-			if localInst.fs != nil {
-				localInst.fs.Unmount()
-			}
-			delete(fsm.servers, "db-local")
-		}
-
-		smbServer := firstNonEmpty(cfg.SmbServer, os.Getenv("SMB_SERVER"))
-		smbShare := firstNonEmpty(cfg.SmbShare, os.Getenv("SMB_SHARE_NAME"))
-		smbUsername := firstNonEmpty(cfg.SmbUsername, os.Getenv("SMB_USERNAME"))
-		smbPassword := firstNonEmpty(cfg.SmbPassword, os.Getenv("SMB_PASSWORD"))
-		smbDomain := firstNonEmpty(cfg.SmbDomain, os.Getenv("SMB_DOMAIN"), "WORKGROUP")
-
-		// Если SMB сервер уже настроен с теми же параметрами — пропускаем
-		if inst, ok := fsm.servers["db-smb"]; ok {
-			if inst.config.Server == smbServer &&
-				inst.config.ShareName == smbShare &&
-				inst.config.Username == smbUsername &&
-				inst.config.Password == smbPassword &&
-				inst.config.Domain == smbDomain {
-				return nil
-			}
-			// Параметры изменились — размонтируем старый
-			if inst.fs != nil {
-				inst.fs.Unmount()
-			}
-			delete(fsm.servers, "db-smb")
-		}
-
-		// Передаём параметры через env — remotefs читает именно оттуда
-		os.Setenv("FILE_SERVER_TYPE", "smb")
-		os.Setenv("SMB_SERVER", smbServer)
-		os.Setenv("SMB_SHARE_NAME", smbShare)
-		os.Setenv("SMB_USERNAME", smbUsername)
-		os.Setenv("SMB_PASSWORD", smbPassword)
-		os.Setenv("SMB_DOMAIN", smbDomain)
-		os.Setenv("SMB_MOUNT_POINT", "/mnt/smb-db")
-
-		fs, err := remotefs.NewRemoteFileSystem()
-		if err != nil {
-			return fmt.Errorf("failed to create SMB filesystem: %w", err)
-		}
-		if err := fs.Mount(); err != nil {
-			return fmt.Errorf("failed to mount SMB: %w", err)
-		}
-		fsm.servers["db-smb"] = &FileServerInstance{
-			config: &FileServerConfig{
-				ID:        "db-smb",
-				Type:      "smb",
-				Server:    smbServer,
-				ShareName: smbShare,
-				Username:  smbUsername,
-				Password:  smbPassword,
-				Domain:    smbDomain,
-			},
-			fs:        fs,
-			lastCheck: time.Now(),
-			isHealthy: true,
-		}
-		log.Printf("SMB server configured from DB: //%s/%s", smbServer, smbShare)
-
-	case "local":
-		localPath := firstNonEmpty(cfg.Path, os.Getenv("LOCAL_FS_PATH"), "/app/configs")
-
-		// При переключении на local удаляем DB-SMB источник, чтобы не было двойного сканирования.
-		if smbInst, ok := fsm.servers["db-smb"]; ok {
-			if smbInst.fs != nil {
-				smbInst.fs.Unmount()
-			}
-			delete(fsm.servers, "db-smb")
-		}
-
-		if localInst, ok := fsm.servers["db-local"]; ok {
-			oldPath := localInst.config.LocalPath
-			localInst.config.Type = "local"
-			localInst.config.LocalPath = localPath
-			localInst.config.Enabled = true
-			localInst.isHealthy = true
-			log.Printf("updated local config source path: %s -> %s", oldPath, localPath)
-		} else {
-			fsm.servers["db-local"] = &FileServerInstance{
-				config: &FileServerConfig{
-					ID:        "db-local",
-					Type:      "local",
-					LocalPath: localPath,
-					Enabled:   true,
-				},
-				fs:        nil,
-				lastCheck: time.Now(),
-				isHealthy: true,
-			}
-			log.Printf("local config source configured from DB: %s", localPath)
-		}
-	}
-
-	return nil
-}
-
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if v != "" {
@@ -473,3 +582,4 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
+
