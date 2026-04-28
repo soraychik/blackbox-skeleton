@@ -697,5 +697,21 @@ func (db *DB) GetConfigSourceSettings() (*ConfigSourceSettings, error) {
 		}
 	}
 
+	// Парсим путь для NFS: //server/path, nfs://server/path или server:/path
+	if s.Type == "nfs" && s.Path != "" {
+		path := strings.TrimSpace(s.Path)
+		path = strings.TrimPrefix(path, "nfs://")
+		path = strings.TrimPrefix(path, "//")
+		if idx := strings.Index(path, ":/"); idx != -1 {
+			// формат server:/path
+			s.NfsServer = strings.TrimSpace(path[:idx])
+			s.NfsPath = strings.TrimSpace(path[idx+1:])
+		} else if parts := strings.SplitN(path, "/", 2); len(parts) == 2 {
+			// формат server/path (после снятия //)
+			s.NfsServer = strings.TrimSpace(parts[0])
+			s.NfsPath = "/" + strings.TrimSpace(parts[1])
+		}
+	}
+
 	return s, nil
 }

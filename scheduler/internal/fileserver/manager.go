@@ -13,7 +13,7 @@ import (
 	"blackbox-scheduler/internal/database"
 	"blackbox-scheduler/internal/fileprocessor"
 	"blackbox-scheduler/internal/models"
-	"blackbox-scheduler/internal/remotefs"
+	"blackbox-scheduler/internal/nfsclient"
 	"blackbox-scheduler/internal/smbclient"
 )
 
@@ -42,8 +42,8 @@ type FileServerManager struct {
 
 type FileServerInstance struct {
 	config    *FileServerConfig
-	fs        *remotefs.RemoteFileSystem // для NFS (через mount)
-	smbClient *smbclient.Client          // для SMB (pure-Go, без mount)
+	nfsClient *nfsclient.Client // для NFS (pure-Go, без mount)
+	smbClient *smbclient.Client // для SMB (pure-Go, без mount)
 	lastCheck time.Time
 	isHealthy bool
 }
@@ -97,12 +97,12 @@ func (fsm *FileServerManager) createServerInstance(id string, config *FileServer
 		client := smbclient.New(config.Server, config.ShareName, config.Username, config.Password, config.Domain)
 		return &FileServerInstance{config: config, smbClient: client, isHealthy: false}, nil
 
-	default: // nfs и прочее через mount
-		fs, err := remotefs.NewRemoteFileSystemFromConfig(config.Server, config.SharePath, config.MountPoint)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create remote filesystem: %w", err)
-		}
-		return &FileServerInstance{config: config, fs: fs, isHealthy: false}, nil
+	case "nfs":
+		client := nfsclient.New(config.Server, config.SharePath)
+		return &FileServerInstance{config: config, nfsClient: client, isHealthy: false}, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported file server type: %s", config.Type)
 	}
 }
 
@@ -120,13 +120,13 @@ func (fsm *FileServerManager) MountAllServers() error {
 			} else {
 				instance.isHealthy = true
 			}
-		case instance.fs != nil:
-			if err := instance.fs.Mount(); err != nil {
+		case instance.nfsClient != nil:
+			if err := instance.nfsClient.Connect(); err != nil {
 				errs = append(errs, fmt.Sprintf("nfs %s: %v", id, err))
 				instance.isHealthy = false
 			} else {
 				instance.isHealthy = true
-				log.Printf("mounted server %s", id)
+				log.Printf("nfs connected server %s", id)
 			}
 		default:
 			instance.isHealthy = true // local
@@ -166,12 +166,17 @@ func (fsm *FileServerManager) processServer(id string, instance *FileServerInsta
 		fsm.processSMBServer(id, instance)
 		return
 	}
+	if instance.nfsClient != nil {
+		fsm.processNFSServer(id, instance)
+		return
+	}
 
 	var configDir string
 	if instance.config.Type == "local" {
 		configDir = instance.config.LocalPath
 	} else {
-		configDir = instance.fs.GetConfigDirectory()
+		log.Printf("unknown server type for %s, skipping", id)
+		return
 	}
 
 	files, err := fsm.processor.GetFilesInDirectory(configDir)
@@ -282,6 +287,91 @@ func (fsm *FileServerManager) processSMBServer(id string, instance *FileServerIn
 	instance.lastCheck = time.Now()
 }
 
+func (fsm *FileServerManager) processNFSServer(id string, instance *FileServerInstance) {
+	entries, err := instance.nfsClient.ListFiles()
+	if err != nil {
+		log.Printf("nfs list files failed for %s: %v", id, err)
+		instance.isHealthy = false
+		return
+	}
+	log.Printf("%d files found on NFS server %s", len(entries), id)
+
+	fileStates, err := fsm.db.GetAllFileStates()
+	if err != nil {
+		log.Printf("GetAllFileStates failed for NFS server %s: %v, processing all files", id, err)
+		fileStates = map[string]*database.FileState{}
+	}
+
+	var candidates []nfsclient.FileEntry
+	skipped := 0
+	for _, e := range entries {
+		state, ok := fileStates[e.Name]
+		if ok && state.Size == e.Size && state.ModTime.Equal(e.ModTime) {
+			skipped++
+			continue
+		}
+		candidates = append(candidates, e)
+	}
+	log.Printf("NFS server %s: %d to process, %d skipped by mtime+size", id, len(candidates), skipped)
+
+	if len(candidates) == 0 {
+		instance.lastCheck = time.Now()
+		return
+	}
+
+	sem := make(chan struct{}, fileWorkers)
+	var wg sync.WaitGroup
+
+	for _, entry := range candidates {
+		wg.Add(1)
+		e := entry
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if err := fsm.processNFSFile(id, instance.nfsClient, e); err != nil {
+				log.Printf("error processing NFS file %s from server %s: %v", e.Name, id, err)
+			}
+		}()
+	}
+
+	wg.Wait()
+	instance.lastCheck = time.Now()
+}
+
+func (fsm *FileServerManager) processNFSFile(serverID string, client *nfsclient.Client, entry nfsclient.FileEntry) error {
+	content, err := client.ReadFile(entry.Name)
+	if err != nil {
+		return fmt.Errorf("read file: %w", err)
+	}
+
+	normalizedContent := bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
+	hash := fmt.Sprintf("%x", sha256.Sum256(normalizedContent))
+
+	fileInfo := &models.FileInfo{
+		Name:     entry.Name,
+		Path:     fmt.Sprintf("%s:%s/%s", client.Server(), client.SharePath(), entry.Name),
+		Size:     entry.Size,
+		ModTime:  entry.ModTime,
+		Content:  normalizedContent,
+		Hash:     hash,
+		Hostname: entry.Name,
+	}
+
+	ctx := context.Background()
+	_, err = fsm.processor.SaveVersion(ctx, fsm.db, fileInfo)
+	if err != nil {
+		return fmt.Errorf("save version: %w", err)
+	}
+
+	if err := fsm.db.UpsertFileState(fileInfo.Hostname, fileInfo.Size, fileInfo.ModTime); err != nil {
+		log.Printf("warning: failed to upsert file state for %s: %v", fileInfo.Hostname, err)
+	}
+
+	log.Printf("processed NFS version for %s-%s", serverID, fileInfo.Hostname)
+	return nil
+}
+
 // processSMBFile читает файл через SMB и сохраняет версию без обращения к локальной ФС.
 func (fsm *FileServerManager) processSMBFile(serverID string, client *smbclient.Client, entry smbclient.FileEntry) error {
 	content, err := client.ReadFile(entry.Name)
@@ -353,21 +443,17 @@ func (fsm *FileServerManager) CheckHealth() {
 					instance.isHealthy = true
 				}
 			}
-		case instance.fs != nil:
-			healthy := true
-			if err := instance.fs.CheckConnection(); err != nil {
-				healthy = false
-				log.Printf("health check failed for server %s: %v", id, err)
-			}
-			if !healthy && instance.isHealthy {
-				log.Printf("server %s became unhealthy, attempting remount", id)
-				if err := instance.fs.Mount(); err != nil {
-					log.Printf("failed to remount server %s: %v", id, err)
+		case instance.nfsClient != nil:
+			_, err := instance.nfsClient.ListFiles()
+			if err != nil {
+				log.Printf("nfs health check failed for %s: %v, reconnecting", id, err)
+				if err2 := instance.nfsClient.Connect(); err2 != nil {
+					log.Printf("nfs reconnect failed for %s: %v", id, err2)
+					instance.isHealthy = false
 				} else {
-					healthy = true
+					instance.isHealthy = true
 				}
 			}
-			instance.isHealthy = healthy
 		}
 	}
 }
@@ -397,14 +483,12 @@ func (fsm *FileServerManager) Close() error {
 	defer fsm.mu.Unlock()
 
 	var errs []error
-	for id, instance := range fsm.servers {
+	for _, instance := range fsm.servers {
 		switch {
 		case instance.smbClient != nil:
 			instance.smbClient.Disconnect()
-		case instance.fs != nil:
-			if err := instance.fs.Unmount(); err != nil {
-				errs = append(errs, fmt.Errorf("unmount %s: %w", id, err))
-			}
+		case instance.nfsClient != nil:
+			instance.nfsClient.Disconnect()
 		}
 	}
 	if len(errs) > 0 {
@@ -425,12 +509,11 @@ func (fsm *FileServerManager) ReloadConfigSource(db *database.DB) error {
 
 	switch cfg.Type {
 	case "smb":
-		if localInst, ok := fsm.servers["db-local"]; ok {
-			if localInst.fs != nil {
-				localInst.fs.Unmount()
-			}
-			delete(fsm.servers, "db-local")
+		if inst, ok := fsm.servers["db-nfs"]; ok {
+			inst.nfsClient.Disconnect()
+			delete(fsm.servers, "db-nfs")
 		}
+		delete(fsm.servers, "db-local")
 
 		smbServer := firstNonEmpty(cfg.SmbServer, os.Getenv("SMB_SERVER"))
 		smbShare := firstNonEmpty(cfg.SmbShare, os.Getenv("SMB_SHARE_NAME"))
@@ -480,14 +563,59 @@ func (fsm *FileServerManager) ReloadConfigSource(db *database.DB) error {
 		}
 		log.Printf("SMB server configured from DB: //%s/%s", smbServer, smbShare)
 
+	case "nfs":
+		if inst, ok := fsm.servers["db-smb"]; ok {
+			inst.smbClient.Disconnect()
+			delete(fsm.servers, "db-smb")
+		}
+		delete(fsm.servers, "db-local")
+
+		nfsServer := firstNonEmpty(cfg.NfsServer, os.Getenv("NFS_SERVER"))
+		nfsPath := firstNonEmpty(cfg.NfsPath, os.Getenv("NFS_SHARE_PATH"), "/srv/share")
+
+		if inst, ok := fsm.servers["db-nfs"]; ok {
+			c := inst.nfsClient
+			if c != nil && c.Server() == nfsServer && c.SharePath() == nfsPath {
+				return nil
+			}
+			inst.nfsClient.Disconnect()
+			delete(fsm.servers, "db-nfs")
+		}
+
+		if nfsServer == "" {
+			log.Printf("nfs: server not configured, skipping")
+			return nil
+		}
+
+		client := nfsclient.New(nfsServer, nfsPath)
+		if err := client.Connect(); err != nil {
+			return fmt.Errorf("nfs connect %s:%s: %w", nfsServer, nfsPath, err)
+		}
+
+		fsm.servers["db-nfs"] = &FileServerInstance{
+			config: &FileServerConfig{
+				ID:        "db-nfs",
+				Type:      "nfs",
+				Server:    nfsServer,
+				SharePath: nfsPath,
+				Enabled:   true,
+			},
+			nfsClient: client,
+			lastCheck: time.Now(),
+			isHealthy: true,
+		}
+		log.Printf("NFS server configured from DB: %s:%s", nfsServer, nfsPath)
+
 	case "local":
 		localPath := firstNonEmpty(cfg.Path, os.Getenv("LOCAL_FS_PATH"), "/app/configs")
 
 		if smbInst, ok := fsm.servers["db-smb"]; ok {
-			if smbInst.smbClient != nil {
-				smbInst.smbClient.Disconnect()
-			}
+			smbInst.smbClient.Disconnect()
 			delete(fsm.servers, "db-smb")
+		}
+		if nfsInst, ok := fsm.servers["db-nfs"]; ok {
+			nfsInst.nfsClient.Disconnect()
+			delete(fsm.servers, "db-nfs")
 		}
 
 		if localInst, ok := fsm.servers["db-local"]; ok {

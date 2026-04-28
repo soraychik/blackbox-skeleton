@@ -1,8 +1,12 @@
 package handlers
 
 import (
+	"bytes"
 	"database/sql"
+	"log"
 	"net/http"
+	"strings"
+	"time"
 
 	"blackbox-api/internal/models"
 
@@ -62,12 +66,30 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
+	notifySchedulerReload()
+
 	settings, err := h.loadSettings()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load updated settings"})
 		return
 	}
 	c.JSON(http.StatusOK, settings)
+}
+
+func notifySchedulerReload() {
+	url := strings.TrimSuffix(getSchedulerURL(), "/") + "/reload"
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(nil))
+	if err != nil {
+		log.Printf("reload notify: failed to create request: %v", err)
+		return
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("reload notify: scheduler unreachable: %v", err)
+		return
+	}
+	resp.Body.Close()
 }
 
 func (h *SettingsHandler) loadSettings() (*models.SystemSettings, error) {

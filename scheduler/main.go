@@ -97,10 +97,11 @@ func main() {
 	scanInterval := time.Duration(scanIntervalSec) * time.Second
 	log.Printf("interval between scans: %v (count after full scan completes)", scanInterval)
 
-	// Канал для принудительного запуска сканирования (с дашборда)
+	// Каналы для принудительного сканирования и перезагрузки настроек
 	triggerScan := make(chan struct{}, 1)
+	triggerReload := make(chan struct{}, 1)
 	triggerPort := getEnv("SCHEDULER_TRIGGER_PORT", "9090")
-	go runTriggerServer(":"+triggerPort, triggerScan)
+	go runTriggerServer(":"+triggerPort, triggerScan, triggerReload)
 	log.Printf("force scan server is listening on port %s", triggerPort)
 
 	// Сразу обрабатываем все файлы при запуске; следующее сканирование — через scanInterval после завершения
@@ -114,9 +115,6 @@ func main() {
 
 	healthTicker := time.NewTicker(60 * time.Second)
 	defer healthTicker.Stop()
-
-	settingsTicker := time.NewTicker(30 * time.Second)
-	defer settingsTicker.Stop()
 
 	if err := serverManager.ReloadConfigSource(db); err != nil {
 		log.Printf("warning: failed to reload config source from settings: %v", err)
@@ -136,18 +134,21 @@ func main() {
 			runScan(serverManager)
 			log.Println("forced scan complete, waiting until next automatic scan...")
 			nextScanTimer.Reset(scanInterval)
+		case <-triggerReload:
+			log.Println("reloading config source settings...")
+			if err := serverManager.ReloadConfigSource(db); err != nil {
+				log.Printf("reload config source failed: %v", err)
+			} else {
+				log.Println("config source reloaded")
+			}
 		case <-healthTicker.C:
 			serverManager.CheckHealth()
-		case <-settingsTicker.C:
-			if err := serverManager.ReloadConfigSource(db); err != nil {
-				log.Printf("settings check: failed to reload config source: %v", err)
-			}
 		}
 	}
 }
 
-// runTriggerServer поднимает HTTP-сервер для принудительного запуска сканирования (POST /scan).
-func runTriggerServer(addr string, triggerChan chan<- struct{}) {
+// runTriggerServer поднимает HTTP-сервер для принудительного запуска сканирования и перезагрузки настроек.
+func runTriggerServer(addr string, triggerChan chan<- struct{}, reloadChan chan<- struct{}) {
 	http.HandleFunc("/scan", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -160,6 +161,20 @@ func runTriggerServer(addr string, triggerChan chan<- struct{}) {
 		default:
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"status":"ok","message":"scan already queued"}`))
+		}
+	})
+	http.HandleFunc("/reload", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		select {
+		case reloadChan <- struct{}{}:
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"status":"ok","message":"reload triggered"}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"status":"ok","message":"reload already queued"}`))
 		}
 	})
 	http.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
