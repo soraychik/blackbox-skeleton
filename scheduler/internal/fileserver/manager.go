@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"strings"
+
 	"blackbox-scheduler/internal/database"
 	"blackbox-scheduler/internal/fileprocessor"
 	"blackbox-scheduler/internal/models"
@@ -607,7 +609,7 @@ func (fsm *FileServerManager) ReloadConfigSource(db *database.DB) error {
 		log.Printf("NFS server configured from DB: %s:%s", nfsServer, nfsPath)
 
 	case "local":
-		localPath := firstNonEmpty(cfg.Path, os.Getenv("LOCAL_FS_PATH"), "/app/configs")
+		localPath := resolveHostPath(firstNonEmpty(cfg.Path, os.Getenv("LOCAL_FS_PATH"), "/app/configs"))
 
 		if smbInst, ok := fsm.servers["db-smb"]; ok {
 			smbInst.smbClient.Disconnect()
@@ -709,5 +711,30 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// resolveHostPath транслирует путь пользователя (с хост-машины) в путь внутри контейнера.
+// Хостовая ФС примонтирована в /host (см. docker-compose volumes: /:/host:ro).
+// Linux:   /srv/configs     → /host/srv/configs
+// Windows: C:\configs       → /host/c/configs
+// Windows: C:/configs       → /host/c/configs
+func resolveHostPath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return p
+	}
+	// Уже внутри контейнера (dev-режим или уже /host/...)
+	if strings.HasPrefix(p, "/host/") || strings.HasPrefix(p, "/app/") {
+		return p
+	}
+	// Windows: C:\path или C:/path
+	if len(p) >= 2 && p[1] == ':' {
+		drive := strings.ToLower(string(p[0]))
+		rest := strings.ReplaceAll(p[2:], "\\", "/")
+		rest = strings.TrimPrefix(rest, "/")
+		return "/host/" + drive + "/" + rest
+	}
+	// Linux: /absolute/path
+	return "/host" + p
 }
 
