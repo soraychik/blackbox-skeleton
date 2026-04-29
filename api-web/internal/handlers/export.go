@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"blackbox-api/internal/audit"
 	"blackbox-api/internal/repository"
 	"blackbox-api/internal/service"
 	"blackbox-api/internal/storage"
@@ -18,13 +19,15 @@ type ExportHandler struct {
 	db          *sql.DB
 	minio       *storage.MinIOImprovedClient
 	versionRepo repository.VersionRepository
+	audit       *audit.Logger
 }
 
-func NewExportHandler(db *sql.DB, minio *storage.MinIOImprovedClient, versionRepo repository.VersionRepository) *ExportHandler {
+func NewExportHandler(db *sql.DB, minio *storage.MinIOImprovedClient, versionRepo repository.VersionRepository, auditLog *audit.Logger) *ExportHandler {
 	return &ExportHandler{
 		db:          db,
 		minio:       minio,
 		versionRepo: versionRepo,
+		audit:       auditLog,
 	}
 }
 
@@ -83,6 +86,8 @@ func (h *ExportHandler) GetExportConfig(c *gin.Context) {
 	}
 
 	filename := fmt.Sprintf("config_%s_%s.txt", strings.ReplaceAll(hostname, " ", "_"), dateStr)
+	u, r, ip := audit.FromGin(c)
+	h.audit.Log(u, r, "export_config", map[string]any{"device_id": deviceID, "hostname": hostname, "date": dateStr}, ip)
 	c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
 	c.Data(http.StatusOK, "text/plain", content)
 }

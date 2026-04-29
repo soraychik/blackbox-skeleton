@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"blackbox-api/internal/audit"
 	"blackbox-api/internal/db"
 	"blackbox-api/internal/repository"
 	"blackbox-api/internal/service"
@@ -16,13 +17,15 @@ type DevicesHandler struct {
 	db          *sql.DB
 	deviceRepo  repository.DeviceRepository
 	versionRepo repository.VersionRepository
+	audit       *audit.Logger
 }
 
-func NewDevicesHandler(db *sql.DB, deviceRepo repository.DeviceRepository, versionRepo repository.VersionRepository) *DevicesHandler {
+func NewDevicesHandler(db *sql.DB, deviceRepo repository.DeviceRepository, versionRepo repository.VersionRepository, auditLog *audit.Logger) *DevicesHandler {
 	return &DevicesHandler{
 		db:          db,
 		deviceRepo:  deviceRepo,
 		versionRepo: versionRepo,
+		audit:       auditLog,
 	}
 }
 
@@ -159,6 +162,8 @@ func (h *DevicesHandler) GetLatestVersionsForDevices(c *gin.Context) {
 		return
 	}
 
+	u, r, ip := audit.FromGin(c)
+	h.audit.Log(u, r, "compare_devices", map[string]any{"left_device_id": leftID, "right_device_id": rightID}, ip)
 	c.JSON(http.StatusOK, gin.H{
 		"left": gin.H{
 			"device":  leftDevice,

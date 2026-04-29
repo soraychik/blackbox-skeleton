@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"blackbox-api/internal/audit"
 	"blackbox-api/internal/models"
 	"blackbox-api/internal/repository"
 	"blackbox-api/internal/service"
@@ -24,14 +25,16 @@ type SearchHandler struct {
 	versionRepo repository.VersionRepository
 	deviceRepo  repository.DeviceRepository
 	db          *sql.DB
+	audit       *audit.Logger
 }
 
-func NewSearchHandler(minio *storage.MinIOImprovedClient, versionRepo repository.VersionRepository, deviceRepo repository.DeviceRepository, db *sql.DB) *SearchHandler {
+func NewSearchHandler(minio *storage.MinIOImprovedClient, versionRepo repository.VersionRepository, deviceRepo repository.DeviceRepository, db *sql.DB, auditLog *audit.Logger) *SearchHandler {
 	return &SearchHandler{
 		minio:       minio,
 		versionRepo: versionRepo,
 		deviceRepo:  deviceRepo,
 		db:          db,
+		audit:       auditLog,
 	}
 }
 
@@ -192,6 +195,8 @@ func (h *SearchHandler) PostSearchChanges(c *gin.Context) {
 		}
 	}
 
+	u, r, ip := audit.FromGin(c)
+	h.audit.Log(u, r, "search_changes", map[string]any{"added_patterns": req.AddedPatterns, "removed_patterns": req.RemovedPatterns}, ip)
 	c.JSON(http.StatusOK, gin.H{"devices": results})
 }
 
@@ -337,5 +342,7 @@ func (h *SearchHandler) PostSearchCount(c *gin.Context) {
 		}
 	}
 
+	u, r, ip := audit.FromGin(c)
+	h.audit.Log(u, r, "search", map[string]any{"pattern": req.Pattern}, ip)
 	c.JSON(http.StatusOK, gin.H{"results": results})
 }

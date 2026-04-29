@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"blackbox-api/internal/audit"
 	"blackbox-api/internal/models"
 	"blackbox-api/internal/repository"
 	"blackbox-api/internal/service"
@@ -23,14 +24,16 @@ type VersionsHandler struct {
 	minio       *storage.MinIOImprovedClient
 	versionRepo repository.VersionRepository
 	diffRepo    repository.DiffRepository
+	audit       *audit.Logger
 }
 
-func NewVersionsHandler(db *sql.DB, minio *storage.MinIOImprovedClient, versionRepo repository.VersionRepository, diffRepo repository.DiffRepository) *VersionsHandler {
+func NewVersionsHandler(db *sql.DB, minio *storage.MinIOImprovedClient, versionRepo repository.VersionRepository, diffRepo repository.DiffRepository, auditLog *audit.Logger) *VersionsHandler {
 	return &VersionsHandler{
 		db:          db,
 		minio:       minio,
 		versionRepo: versionRepo,
 		diffRepo:    diffRepo,
+		audit:       auditLog,
 	}
 }
 
@@ -95,6 +98,8 @@ func (h *VersionsHandler) GetVersionContent(c *gin.Context) {
 		log.Printf("warning: hash mismatch for version %d: expected %s, got %s", id, version.VersionHash, computedHash)
 	}
 
+	u, r, ip := audit.FromGin(c)
+	h.audit.Log(u, r, "view_config", map[string]any{"version_id": id, "device_id": version.DeviceID}, ip)
 	c.Data(http.StatusOK, "text/plain; charset=utf-8", content)
 }
 
@@ -181,6 +186,8 @@ func (h *VersionsHandler) GetVersionDiff(c *gin.Context) {
 		}
 	}()
 
+	u, r, ip := audit.FromGin(c)
+	h.audit.Log(u, r, "view_diff", map[string]any{"version_id_1": id1, "version_id_2": id2}, ip)
 	c.JSON(http.StatusOK, models.DiffResult{
 		LeftVersionID:  id1,
 		RightVersionID: id2,
@@ -258,12 +265,13 @@ func (h *VersionsHandler) GetDiffByDate(c *gin.Context) {
 	}
 
 	diffLines := service.ComputeDiffLines(string(content1), string(content2))
-	result := models.DiffResult{
+	u, r, ip := audit.FromGin(c)
+	h.audit.Log(u, r, "view_diff_date", map[string]any{"device_id": deviceID, "date1": date1, "date2": date2}, ip)
+	c.JSON(http.StatusOK, models.DiffResult{
 		LeftVersionID:  id1,
 		RightVersionID: id2,
 		LeftContent:    "",
 		RightContent:   "",
 		Lines:          diffLines,
-	}
-	c.JSON(http.StatusOK, result)
+	})
 }

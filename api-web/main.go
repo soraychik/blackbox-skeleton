@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"blackbox-api/internal/audit"
 	"blackbox-api/internal/auth"
 	"blackbox-api/internal/db"
 	"blackbox-api/internal/handlers"
@@ -30,6 +31,7 @@ func main() {
 	versionRepo := repository.NewVersionRepository(db.Pool)
 	deviceRepo := repository.NewDeviceRepository(db.Pool)
 	diffRepo := repository.NewDiffRepository(db.Pool)
+	auditLog := audit.New(db.Pool)
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()
@@ -51,30 +53,39 @@ func main() {
 		c.String(http.StatusOK, "OK")
 	})
 
-	authHandler := handlers.NewAuthHandler(db.Pool)
+	authHandler := handlers.NewAuthHandler(db.Pool, auditLog)
 	router.POST("/auth/login", authHandler.Login)
 
-	h := handlers.NewHandlers(db.Pool, minioClient, versionRepo, deviceRepo, diffRepo)
+	h := handlers.NewHandlers(db.Pool, minioClient, versionRepo, deviceRepo, diffRepo, auditLog)
+
+	adminEngineer := auth.RequireRole("admin", "engineer")
+	adminOnly := auth.RequireRole("admin")
 
 	protected := router.Group("/")
 	protected.Use(auth.Middleware())
 	{
+		// all authenticated roles
 		protected.GET("/devices", h.Devices.GetDevices)
 		protected.GET("/devices/:id", h.Devices.GetDeviceByID)
 		protected.GET("/devices/:id/versions", h.Devices.GetDeviceVersions)
-		protected.GET("/devices/compare/latest", h.Devices.GetLatestVersionsForDevices)
 		protected.GET("/dashboard/stats", h.Dashboard.GetDashboardStats)
 		protected.GET("/versions", h.Versions.GetVersions)
 		protected.GET("/versions/:id/content", h.Versions.GetVersionContent)
-		protected.GET("/versions/diff/:id1/:id2", h.Versions.GetVersionDiff)
-		protected.GET("/diff/date", h.Versions.GetDiffByDate)
 		protected.GET("/export/config", h.Export.GetExportConfig)
-		protected.POST("/search/changes", h.Search.PostSearchChanges)
-		protected.POST("/search/count", h.Search.PostSearchCount)
-		protected.POST("/scan", handlers.PostTriggerScan)
 		protected.GET("/scan/status", handlers.GetScanStatus)
-		protected.GET("/settings", h.Settings.GetSettings)
-		protected.PUT("/settings", h.Settings.UpdateSettings)
+
+		// admin + engineer
+		protected.GET("/devices/compare/latest", adminEngineer, h.Devices.GetLatestVersionsForDevices)
+		protected.GET("/versions/diff/:id1/:id2", adminEngineer, h.Versions.GetVersionDiff)
+		protected.GET("/diff/date", adminEngineer, h.Versions.GetDiffByDate)
+		protected.POST("/search/changes", adminEngineer, h.Search.PostSearchChanges)
+		protected.POST("/search/count", adminEngineer, h.Search.PostSearchCount)
+
+		// admin only
+		protected.POST("/scan", adminOnly, h.Scan.PostTriggerScan)
+		protected.GET("/settings", adminOnly, h.Settings.GetSettings)
+		protected.PUT("/settings", adminOnly, h.Settings.UpdateSettings)
+		protected.GET("/audit", adminOnly, h.Audit.GetAuditLog)
 	}
 
 	log.Println("api web server starting on :8080")

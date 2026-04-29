@@ -3,6 +3,7 @@ import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import {
   AppBar,
   Box,
+  Chip,
   CssBaseline,
   Drawer,
   IconButton,
@@ -19,6 +20,7 @@ import {
   useTheme,
   useMediaQuery,
 } from '@mui/material';
+import { useRole } from '../utils/useRole';
 import {
   Menu as MenuIcon,
   Dashboard as DashboardIcon,
@@ -31,23 +33,27 @@ import {
   Logout as LogoutIcon,
   Settings as SettingsIcon,
   MenuOpen as MenuOpenIcon,
+  History as HistoryIcon,
 } from '@mui/icons-material';
 
 const DRAWER_WIDTH = 260;
 const DRAWER_WIDTH_COLLAPSED = 72;
 
-const menuItems = [
-  { text: 'Дашборд', icon: <DashboardIcon />, path: '/' },
-  { text: 'Каталог устройств', icon: <DevicesIcon />, path: '/devices' },
-  { text: 'Сравнение устройств', icon: <CompareIcon />, path: '/diff' },
-  { text: 'Поиск', icon: <SearchIcon />, path: '/search' },
-  { text: 'Поиск по изменениям', icon: <FilterListIcon />, path: '/search-changes' },
-  { text: 'Настройки', icon: <SettingsIcon />, path: '/settings' },
+const ALL_MENU_ITEMS = [
+  { text: 'Дашборд', icon: <DashboardIcon />, path: '/', roles: ['admin', 'engineer', 'operator'] },
+  { text: 'Каталог устройств', icon: <DevicesIcon />, path: '/devices', roles: ['admin', 'engineer', 'operator'] },
+  { text: 'Сравнение устройств', icon: <CompareIcon />, path: '/diff', roles: ['admin', 'engineer'] },
+  { text: 'Поиск', icon: <SearchIcon />, path: '/search', roles: ['admin', 'engineer'] },
+  { text: 'Поиск по изменениям', icon: <FilterListIcon />, path: '/search-changes', roles: ['admin', 'engineer'] },
+  { text: 'Настройки', icon: <SettingsIcon />, path: '/settings', roles: ['admin'] },
+  { text: 'Журнал аудита', icon: <HistoryIcon />, path: '/audit', roles: ['admin'] },
 ];
 
 export const SettingsContext = React.createContext();
 
 const Layout = ({ settings, onSettingsChange }) => {
+  const { role, login, label } = useRole();
+  const menuItems = ALL_MENU_ITEMS.filter((item) => item.roles.includes(role));
   const darkMode = settings.darkMode;
   const scale = settings.scale;
   const accentColor = settings.accentColor;
@@ -273,8 +279,10 @@ const Layout = ({ settings, onSettingsChange }) => {
               {darkMode ? <LightModeIcon /> : <DarkModeIcon />}
             </IconButton>
             <Box ref={userMenuRef} sx={{ position: 'relative' }}>
-              <IconButton onClick={handleMenuToggle} aria-haspopup="true" aria-expanded={userMenuOpen}>
-                <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>U</Avatar>
+              <IconButton onClick={handleMenuToggle} aria-haspopup="true" aria-expanded={userMenuOpen} sx={{ gap: 1 }}>
+                <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>
+                  {login ? login[0].toUpperCase() : 'U'}
+                </Avatar>
               </IconButton>
               {userMenuOpen && (
                 <Paper
@@ -284,16 +292,22 @@ const Layout = ({ settings, onSettingsChange }) => {
                     right: 0,
                     top: '100%',
                     mt: 1,
-                    minWidth: 160,
+                    minWidth: 200,
                     py: 0.5,
                     zIndex: (t) => t.zIndex.tooltip + 1,
                     '& .MuiListItemIcon-root': { minWidth: 36 },
                   }}
                 >
-                  <ListItemButton onClick={handleProfile} dense>
-                    <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>
-                    <ListItemText primary="Профиль" primaryTypographyProps={{ variant: 'body2' }} />
-                  </ListItemButton>
+                  <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
+                    <Typography variant="body2" fontWeight={600}>{login}</Typography>
+                    <Chip label={label} size="small" color="primary" variant="outlined" sx={{ mt: 0.5, height: 20, fontSize: 11 }} />
+                  </Box>
+                  {role === 'admin' && (
+                    <ListItemButton onClick={handleProfile} dense>
+                      <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText primary="Настройки" primaryTypographyProps={{ variant: 'body2' }} />
+                    </ListItemButton>
+                  )}
                   <ListItemButton onClick={handleLogout} dense>
                     <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
                     <ListItemText primary="Выйти" primaryTypographyProps={{ variant: 'body2' }} />

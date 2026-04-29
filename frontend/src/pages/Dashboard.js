@@ -26,6 +26,7 @@ import {
 } from '@mui/icons-material';
 import { getDashboardStats, triggerScan, getScanStatus } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
+import { useRole } from '../utils/useRole';
 
 const StatCard = ({ title, value, icon, color, loading }) => (
   <Card sx={{ height: '100%' }}>
@@ -62,6 +63,7 @@ const StatCard = ({ title, value, icon, color, loading }) => (
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { role } = useRole();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [scanning, setScanning] = useState(false);
@@ -187,17 +189,19 @@ const Dashboard = () => {
         </Grid>
       </Grid>
 
-      <Box sx={{ mb: 3 }}>
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={scanning ? <CircularProgress size={20} color="inherit" /> : <PlayArrowIcon />}
-          onClick={handleTriggerScan}
-          disabled={scanning}
-        >
-          {scanning ? 'Сканирование…' : 'Запустить сканирование'}
-        </Button>
-      </Box>
+      {role === 'admin' && (
+        <Box sx={{ mb: 3 }}>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={scanning ? <CircularProgress size={20} color="inherit" /> : <PlayArrowIcon />}
+            onClick={handleTriggerScan}
+            disabled={scanning}
+          >
+            {scanning ? 'Сканирование…' : 'Запустить сканирование'}
+          </Button>
+        </Box>
+      )}
 
       <Card>
         <CardContent>

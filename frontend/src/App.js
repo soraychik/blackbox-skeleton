@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { getTheme } from './theme';
@@ -14,7 +14,18 @@ import DeviceDiff from './pages/DeviceDiff';
 import Search from './pages/Search';
 import SearchChanges from './pages/SearchChanges';
 import Settings from './pages/Settings';
+import AuditLog from './pages/AuditLog';
 import LoginPage from './pages/LoginPage';
+
+const RoleRoute = ({ roles, element }) => {
+  try {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    if (!roles.includes(user.role)) return <Navigate to="/" replace />;
+  } catch {
+    return <Navigate to="/" replace />;
+  }
+  return element;
+};
 
 const NavigateSetter = () => {
   const navigate = useNavigate();
@@ -48,10 +59,11 @@ function App() {
               <Route index element={<Dashboard />} />
               <Route path="/devices" element={<Devices />} />
               <Route path="/devices/:id" element={<DeviceDetails />} />
-              <Route path="/diff" element={<DeviceDiff />} />
-              <Route path="/search" element={<Search />} />
-              <Route path="/search-changes" element={<SearchChanges />} />
-              <Route path="/settings" element={<Settings />} />
+              <Route path="/diff" element={<RoleRoute roles={['admin', 'engineer']} element={<DeviceDiff />} />} />
+              <Route path="/search" element={<RoleRoute roles={['admin', 'engineer']} element={<Search />} />} />
+              <Route path="/search-changes" element={<RoleRoute roles={['admin', 'engineer']} element={<SearchChanges />} />} />
+              <Route path="/settings" element={<RoleRoute roles={['admin']} element={<Settings />} />} />
+              <Route path="/audit" element={<RoleRoute roles={['admin']} element={<AuditLog />} />} />
             </Route>
           </Route>
         </Routes>

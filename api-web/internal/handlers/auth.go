@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"blackbox-api/internal/audit"
 	"blackbox-api/internal/auth"
 
 	"github.com/gin-gonic/gin"
@@ -16,11 +17,12 @@ import (
 )
 
 type AuthHandler struct {
-	db *sql.DB
+	db    *sql.DB
+	audit *audit.Logger
 }
 
-func NewAuthHandler(db *sql.DB) *AuthHandler {
-	return &AuthHandler{db: db}
+func NewAuthHandler(db *sql.DB, auditLog *audit.Logger) *AuthHandler {
+	return &AuthHandler{db: db, audit: auditLog}
 }
 
 type loginRequest struct {
@@ -70,6 +72,7 @@ func (h *AuthHandler) issueAndRespond(c *gin.Context, username, role string, rem
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "token error"})
 		return
 	}
+	h.audit.Log(username, role, "login", map[string]any{}, c.ClientIP())
 	c.JSON(http.StatusOK, gin.H{
 		"token": token,
 		"user":  gin.H{"login": username, "role": role},

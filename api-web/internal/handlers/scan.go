@@ -9,10 +9,20 @@ import (
 	"strings"
 	"time"
 
+	"blackbox-api/internal/audit"
+
 	"github.com/gin-gonic/gin"
 )
 
-func PostTriggerScan(c *gin.Context) {
+type ScanHandler struct {
+	audit *audit.Logger
+}
+
+func NewScanHandler(auditLog *audit.Logger) *ScanHandler {
+	return &ScanHandler{audit: auditLog}
+}
+
+func (h *ScanHandler) PostTriggerScan(c *gin.Context) {
 	schedulerURL := getSchedulerURL()
 	url := strings.TrimSuffix(schedulerURL, "/") + "/scan"
 
@@ -36,6 +46,9 @@ func PostTriggerScan(c *gin.Context) {
 		c.JSON(resp.StatusCode, gin.H{"error": string(body)})
 		return
 	}
+
+	u, r, ip := audit.FromGin(c)
+	h.audit.Log(u, r, "trigger_scan", map[string]any{}, ip)
 	c.Data(resp.StatusCode, "application/json", body)
 }
 

@@ -9,17 +9,19 @@ import (
 	"strings"
 	"time"
 
+	"blackbox-api/internal/audit"
 	"blackbox-api/internal/models"
 
 	"github.com/gin-gonic/gin"
 )
 
 type SettingsHandler struct {
-	db *sql.DB
+	db    *sql.DB
+	audit *audit.Logger
 }
 
-func NewSettingsHandler(db *sql.DB) *SettingsHandler {
-	return &SettingsHandler{db: db}
+func NewSettingsHandler(db *sql.DB, auditLog *audit.Logger) *SettingsHandler {
+	return &SettingsHandler{db: db, audit: auditLog}
 }
 
 func (h *SettingsHandler) GetSettings(c *gin.Context) {
@@ -101,6 +103,9 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 	}
 
 	notifySchedulerReload()
+
+	u, r, ip := audit.FromGin(c)
+	h.audit.Log(u, r, "update_settings", map[string]any{}, ip)
 
 	settings, err := h.loadSettings()
 	if err != nil {
