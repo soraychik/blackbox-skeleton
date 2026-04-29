@@ -91,9 +91,9 @@ services:
         condition: service_completed_successfully
     network_mode: host
 
-  api-web:
-    build: ./api-web
-    container_name: blackbox-api-web
+  api:
+    build: ./api
+    container_name: blackbox-api
     restart: unless-stopped
     env_file:
       - .env
@@ -124,7 +124,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - api-web
+      - api
     networks:
       - blackbox-net
 

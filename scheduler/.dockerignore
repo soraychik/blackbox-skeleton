@@ -7,7 +7,7 @@ blackbox-api
 README.md
 ../storage/
 frontend/
-api-web/
+api/
 scheduler/configs/
 .DS_Store
 .vscode/

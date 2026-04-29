@@ -20,15 +20,15 @@
 В корне проекта:
 
 ```bash
-cd blackbox-skeleton
+cd blackbox
 docker compose build
 ```
 
-После сборки появятся три образа (имена зависят от имени папки проекта, обычно с префиксом `blackbox-skeleton-`):
+После сборки появятся три образа (имена зависят от имени папки проекта, обычно с префиксом `blackbox-`):
 
-- `blackbox-skeleton-api-web`
-- `blackbox-skeleton-scheduler`
-- `blackbox-skeleton-nginx`
+- `blackbox-api`
+- `blackbox-scheduler`
+- `blackbox-nginx`
 
 Проверить: `docker images | grep blackbox`
 
@@ -39,29 +39,29 @@ docker compose build
 ```bash
 export DOCKERHUB_USER=soraychik
 
-docker tag blackbox-skeleton-api-web:latest    $DOCKERHUB_USER/blackbox-api-web:latest
-docker tag blackbox-skeleton-scheduler:latest  $DOCKERHUB_USER/blackbox-scheduler:latest
-docker tag blackbox-skeleton-nginx:latest       $DOCKERHUB_USER/blackbox-nginx:latest
+docker tag blackbox-api:latest    $DOCKERHUB_USER/blackbox-api:latest
+docker tag blackbox-scheduler:latest  $DOCKERHUB_USER/blackbox-scheduler:latest
+docker tag blackbox-nginx:latest       $DOCKERHUB_USER/blackbox-nginx:latest
 ```
 
-Если имена образов у вас другие (например без `blackbox-skeleton-`), подставьте их в команды выше. Узнать точные имена: `docker images`.
+Если имена образов у вас другие (например без `blackbox-`), подставьте их в команды выше. Узнать точные имена: `docker images`.
 
 ### 1.4 Публикация в Docker Hub
 
 ```bash
-docker push $DOCKERHUB_USER/blackbox-api-web:latest
+docker push $DOCKERHUB_USER/blackbox-api:latest
 docker push $DOCKERHUB_USER/blackbox-scheduler:latest
 docker push $DOCKERHUB_USER/blackbox-nginx:latest
 ```
 
 После этого образы доступны по адресам вида:
-- `ВАШ_ЛОГИН/blackbox-api-web:latest`
+- `ВАШ_ЛОГИН/blackbox-api:latest`
 - `ВАШ_ЛОГИН/blackbox-scheduler:latest`
 - `ВАШ_ЛОГИН/blackbox-nginx:latest`
 
 ### 1.5 Что передать руководителю
 
-1. **Ссылку на репозиторий проекта** (git или архив с папкой `blackbox-skeleton`), чтобы у него были:
+1. **Ссылку на репозиторий проекта** (git или архив с папкой `blackbox`), чтобы у него были:
    - `docker-compose.hub.yml`
    - `.env.example`
    - папки `sql-init` и `scheduler/configs`
@@ -78,11 +78,11 @@ docker push $DOCKERHUB_USER/blackbox-nginx:latest
 
 - **Через Git:**  
   `git clone <URL репозитория>`  
-  затем: `cd blackbox-skeleton`
+  затем: `cd blackbox`
 
 - **Через архив:**  
   распаковать архив в папку и перейти в неё:  
-  `cd blackbox-skeleton`
+  `cd blackbox`
 
 Убедитесь, что в каталоге есть файлы:
 - `docker-compose.hub.yml`
@@ -119,7 +119,7 @@ docker compose -f docker-compose.hub.yml up -d
 docker compose -f docker-compose.hub.yml ps
 ```
 
-Все сервисы (mysql-db, minio, scheduler, api-web, nginx) должны быть в состоянии `Up`.
+Все сервисы (mysql-db, minio, scheduler, api, nginx) должны быть в состоянии `Up`.
 
 Откройте в браузере: **http://localhost**  
 Должен открыться веб-интерфейс BlackBox (через nginx на порту 80).
@@ -137,7 +137,7 @@ docker compose -f docker-compose.hub.yml down
 ## Краткая шпаргалка для руководителя
 
 ```bash
-cd blackbox-skeleton
+cd blackbox
 cp .env.example .env
 # В .env указать: DOCKERHUB_USER=логин_разработчика
 docker compose -f docker-compose.hub.yml pull

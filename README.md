@@ -7,7 +7,7 @@
 ```bash
 # Клонировать репозиторий
 git clone <repository-url>
-cd blackbox-skeleton
+cd blackbox
 
 # Собрать и запустить
 docker-compose up -d --build
@@ -31,7 +31,7 @@ docker-compose up -d --build
 | Путь       | Назначение                          |
 |------------|-------------------------------------|
 | `http://localhost/`      | Frontend (React)                    |
-| `http://localhost/api/`  | API (прокси на api-web:8080)        |
+| `http://localhost/api/`  | API (прокси на api:8080)        |
 
 **Запуск с nginx:** после `docker-compose up -d` открывайте http://localhost
 
@@ -156,8 +156,8 @@ FILE_SERVER_3_MOUNT_POINT=/mnt/nfs3
 ## Структура проекта
 
 ```
-blackbox-skeleton/
-├── api-web/                 # API сервис
+blackbox/
+├── api/                 # API сервис
 ├── scheduler/               # Основной планировщик
 │   ├── cmd/                # Команды
 │   ├── internal/           # Внутренние пакеты
@@ -183,8 +183,8 @@ cd scheduler
 go build -o scheduler .
 
 # Сборка API web
-cd api-web
-go build -o api-web .
+cd api
+go build -o api .
 
 # Сборка frontend
 cd frontend
@@ -336,7 +336,7 @@ docker system prune -a
 
 ### Добавление новых эндпоинтов API
 
-1. Обновите `api-web/internal/endpoints/`
+1. Обновите `api/internal/endpoints/`
 2. Добавьте модели данных
 3. Обновите фронтенд
 4. Добавьте тесты

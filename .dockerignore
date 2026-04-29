@@ -9,5 +9,5 @@ scheduler/configs/
 .DS_Store
 .vscode/
 node_modules/
-.api-web/
+.api/
 .scheduler/
