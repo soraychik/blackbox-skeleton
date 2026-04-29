@@ -95,15 +95,13 @@ services:
     build: ./api-web
     container_name: blackbox-api-web
     restart: unless-stopped
-    ports:
-      - "8080:8080"
     env_file:
       - .env
     environment:
-      # Scheduler слушает на хосте (network_mode: host) — достучаться можно через host-gateway
-      SCHEDULER_TRIGGER_URL: "http://host.docker.internal:9090"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      # network_mode: host — используем 127.0.0.1 вместо Docker DNS имён
+      DATABASE_HOST: "127.0.0.1"
+      MINIO_ENDPOINT: "127.0.0.1:9000"
+      SCHEDULER_TRIGGER_URL: "http://127.0.0.1:9090"
     depends_on:
       mysql-db:
         condition: service_healthy
@@ -111,8 +109,7 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    networks:
-      - blackbox-net
+    network_mode: host
 
   nginx:
     build:
@@ -124,6 +121,8 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - api-web
     networks:

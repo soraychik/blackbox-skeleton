@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"blackbox-api/internal/auth"
 	"blackbox-api/internal/db"
 	"blackbox-api/internal/handlers"
 	"blackbox-api/internal/repository"
@@ -46,29 +47,35 @@ func main() {
 	router.GET("/", func(c *gin.Context) {
 		c.String(http.StatusOK, "BlackBox API Web is running...")
 	})
-
 	router.GET("/health", func(c *gin.Context) {
 		c.String(http.StatusOK, "OK")
 	})
 
+	authHandler := handlers.NewAuthHandler(db.Pool)
+	router.POST("/auth/login", authHandler.Login)
+
 	h := handlers.NewHandlers(db.Pool, minioClient, versionRepo, deviceRepo, diffRepo)
 
-	router.GET("/devices", h.Devices.GetDevices)
-	router.GET("/devices/:id", h.Devices.GetDeviceByID)
-	router.GET("/devices/:id/versions", h.Devices.GetDeviceVersions)
-	router.GET("/devices/compare/latest", h.Devices.GetLatestVersionsForDevices)
-	router.GET("/dashboard/stats", h.Dashboard.GetDashboardStats)
-	router.GET("/versions", h.Versions.GetVersions)
-	router.GET("/versions/:id/content", h.Versions.GetVersionContent)
-	router.GET("/versions/diff/:id1/:id2", h.Versions.GetVersionDiff)
-	router.GET("/diff/date", h.Versions.GetDiffByDate)
-	router.GET("/export/config", h.Export.GetExportConfig)
-	router.POST("/search/changes", h.Search.PostSearchChanges)
-	router.POST("/search/count", h.Search.PostSearchCount)
-	router.POST("/scan", handlers.PostTriggerScan)
-	router.GET("/scan/status", handlers.GetScanStatus)
-	router.GET("/settings", h.Settings.GetSettings)
-	router.PUT("/settings", h.Settings.UpdateSettings)
+	protected := router.Group("/")
+	protected.Use(auth.Middleware())
+	{
+		protected.GET("/devices", h.Devices.GetDevices)
+		protected.GET("/devices/:id", h.Devices.GetDeviceByID)
+		protected.GET("/devices/:id/versions", h.Devices.GetDeviceVersions)
+		protected.GET("/devices/compare/latest", h.Devices.GetLatestVersionsForDevices)
+		protected.GET("/dashboard/stats", h.Dashboard.GetDashboardStats)
+		protected.GET("/versions", h.Versions.GetVersions)
+		protected.GET("/versions/:id/content", h.Versions.GetVersionContent)
+		protected.GET("/versions/diff/:id1/:id2", h.Versions.GetVersionDiff)
+		protected.GET("/diff/date", h.Versions.GetDiffByDate)
+		protected.GET("/export/config", h.Export.GetExportConfig)
+		protected.POST("/search/changes", h.Search.PostSearchChanges)
+		protected.POST("/search/count", h.Search.PostSearchCount)
+		protected.POST("/scan", handlers.PostTriggerScan)
+		protected.GET("/scan/status", handlers.GetScanStatus)
+		protected.GET("/settings", h.Settings.GetSettings)
+		protected.PUT("/settings", h.Settings.UpdateSettings)
+	}
 
 	log.Println("api web server starting on :8080")
 	router.Run(":8080")

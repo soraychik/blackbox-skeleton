@@ -151,6 +151,16 @@ type SystemSettings struct {
 	SmbDomain           string `json:"smb_domain,omitempty"`
 	ScanIntervalSeconds int    `json:"scan_interval_seconds"`
 	// SmbPassword намеренно не возвращается в ответе API
+
+	LDAPEnabled      bool   `json:"ldap_enabled"`
+	LDAPUrl          string `json:"ldap_url,omitempty"`
+	LDAPBindDN       string `json:"ldap_bind_dn,omitempty"`
+	LDAPUserBase     string `json:"ldap_user_base,omitempty"`
+	LDAPUserFilter   string `json:"ldap_user_filter,omitempty"`
+	LDAPRoleAdmin    string `json:"ldap_role_admin,omitempty"`
+	LDAPRoleEngineer string `json:"ldap_role_engineer,omitempty"`
+	LDAPRoleOperator string `json:"ldap_role_operator,omitempty"`
+	// LDAPBindPassword намеренно не возвращается в ответе API
 }
 
 type SettingsUpdateRequest struct {
@@ -160,4 +170,14 @@ type SettingsUpdateRequest struct {
 	SmbPassword         string `json:"smb_password"`
 	SmbDomain           string `json:"smb_domain"`
 	ScanIntervalSeconds int    `json:"scan_interval_seconds"`
+
+	LDAPEnabled      bool   `json:"ldap_enabled"`
+	LDAPUrl          string `json:"ldap_url"`
+	LDAPBindDN       string `json:"ldap_bind_dn"`
+	LDAPBindPassword string `json:"ldap_bind_password"`
+	LDAPUserBase     string `json:"ldap_user_base"`
+	LDAPUserFilter   string `json:"ldap_user_filter"`
+	LDAPRoleAdmin    string `json:"ldap_role_admin"`
+	LDAPRoleEngineer string `json:"ldap_role_engineer"`
+	LDAPRoleOperator string `json:"ldap_role_operator"`
 }

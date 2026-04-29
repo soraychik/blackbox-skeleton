@@ -88,6 +88,18 @@ const Settings = () => {
   const [saving, setSaving] = React.useState(false);
   const [saveMessage, setSaveMessage] = React.useState('');
 
+  const [ldapEnabled, setLdapEnabled] = React.useState(false);
+  const [ldapUrl, setLdapUrl] = React.useState('');
+  const [ldapBindDn, setLdapBindDn] = React.useState('');
+  const [ldapBindPassword, setLdapBindPassword] = React.useState('');
+  const [ldapUserBase, setLdapUserBase] = React.useState('');
+  const [ldapUserFilter, setLdapUserFilter] = React.useState('(sAMAccountName=%s)');
+  const [ldapRoleAdmin, setLdapRoleAdmin] = React.useState('');
+  const [ldapRoleEngineer, setLdapRoleEngineer] = React.useState('');
+  const [ldapRoleOperator, setLdapRoleOperator] = React.useState('');
+  const [ldapSaving, setLdapSaving] = React.useState(false);
+  const [ldapSaveMessage, setLdapSaveMessage] = React.useState('');
+
   React.useEffect(() => {
     getSettings()
       .then((settings) => {
@@ -95,7 +107,14 @@ const Settings = () => {
         if (settings.config_source_path) setConfigSourcePath(settings.config_source_path);
         if (settings.smb_username) setSmbUsername(settings.smb_username);
         if (settings.smb_domain) setSmbDomain(settings.smb_domain);
-        // Пароль не загружаем из соображений безопасности
+        setLdapEnabled(!!settings.ldap_enabled);
+        if (settings.ldap_url) setLdapUrl(settings.ldap_url);
+        if (settings.ldap_bind_dn) setLdapBindDn(settings.ldap_bind_dn);
+        if (settings.ldap_user_base) setLdapUserBase(settings.ldap_user_base);
+        if (settings.ldap_user_filter) setLdapUserFilter(settings.ldap_user_filter);
+        if (settings.ldap_role_admin) setLdapRoleAdmin(settings.ldap_role_admin);
+        if (settings.ldap_role_engineer) setLdapRoleEngineer(settings.ldap_role_engineer);
+        if (settings.ldap_role_operator) setLdapRoleOperator(settings.ldap_role_operator);
       })
       .catch((err) => console.error('Failed to load settings:', err));
   }, []);
@@ -120,6 +139,32 @@ const Settings = () => {
     } finally {
       setSaving(false);
       setTimeout(() => setSaveMessage(''), 3000);
+    }
+  };
+
+  const handleSaveLDAP = async () => {
+    setLdapSaving(true);
+    setLdapSaveMessage('');
+    try {
+      const payload = {
+        ldap_enabled: ldapEnabled,
+        ldap_url: ldapUrl,
+        ldap_bind_dn: ldapBindDn,
+        ldap_user_base: ldapUserBase,
+        ldap_user_filter: ldapUserFilter,
+        ldap_role_admin: ldapRoleAdmin,
+        ldap_role_engineer: ldapRoleEngineer,
+        ldap_role_operator: ldapRoleOperator,
+      };
+      if (ldapBindPassword) payload.ldap_bind_password = ldapBindPassword;
+      await updateSettings(payload);
+      setLdapSaveMessage('Настройки сохранены');
+      setLdapBindPassword('');
+    } catch (err) {
+      setLdapSaveMessage('Ошибка: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setLdapSaving(false);
+      setTimeout(() => setLdapSaveMessage(''), 3000);
     }
   };
 
@@ -299,18 +344,135 @@ const Settings = () => {
           <CardContent sx={{ p: 4 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
               <SecurityIcon color="primary" sx={{ fontSize: 28 }} />
-              <Typography variant="h5" fontWeight={600}>Active Directory</Typography>
+              <Typography variant="h5" fontWeight={600}>Active Directory / LDAP</Typography>
             </Box>
             <Divider sx={{ mb: 3 }} />
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
-              Интеграция с LDAP для авторизации пользователей
-            </Typography>
-            <TextField
-              fullWidth
-              label="LDAP URL"
-              placeholder="ldap://domain.com:389"
-              helperText="Адрес LDAP сервера для авторизации"
-            />
+
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+              <Box>
+                <Typography variant="body1" fontWeight={500}>Включить LDAP авторизацию</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Пользователи будут входить с корпоративными учётными данными
+                </Typography>
+              </Box>
+              <Switch checked={ldapEnabled} onChange={(e) => setLdapEnabled(e.target.checked)} color="primary" />
+            </Box>
+
+            <Grid container spacing={3}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="LDAP URL"
+                  value={ldapUrl}
+                  onChange={(e) => setLdapUrl(e.target.value)}
+                  placeholder="ldap://192.168.1.100:389"
+                  helperText="Адрес сервера Active Directory"
+                  disabled={!ldapEnabled}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Фильтр поиска пользователя"
+                  value={ldapUserFilter}
+                  onChange={(e) => setLdapUserFilter(e.target.value)}
+                  placeholder="(sAMAccountName=%s)"
+                  helperText="%s будет заменён на введённый логин"
+                  disabled={!ldapEnabled}
+                />
+              </Grid>
+              <Grid item xs={12} sm={8}>
+                <TextField
+                  fullWidth
+                  label="DN сервисного аккаунта (Bind DN)"
+                  value={ldapBindDn}
+                  onChange={(e) => setLdapBindDn(e.target.value)}
+                  placeholder="CN=svc-blackbox,CN=Users,DC=corp,DC=local"
+                  helperText="Учётная запись для поиска пользователей в каталоге"
+                  disabled={!ldapEnabled}
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Пароль сервисного аккаунта"
+                  type="password"
+                  value={ldapBindPassword}
+                  onChange={(e) => setLdapBindPassword(e.target.value)}
+                  placeholder="••••••••"
+                  helperText="Оставьте пустым, чтобы сохранить текущий"
+                  disabled={!ldapEnabled}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="База поиска пользователей (User Base DN)"
+                  value={ldapUserBase}
+                  onChange={(e) => setLdapUserBase(e.target.value)}
+                  placeholder="CN=Users,DC=corp,DC=local"
+                  helperText="Раздел каталога, в котором будет выполняться поиск пользователей"
+                  disabled={!ldapEnabled}
+                />
+              </Grid>
+
+              <Grid item xs={12}>
+                <Typography variant="body2" fontWeight={500} color="text.secondary" sx={{ mb: 1 }}>
+                  Маппинг групп AD → роли системы
+                </Typography>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Группа: Администратор"
+                  value={ldapRoleAdmin}
+                  onChange={(e) => setLdapRoleAdmin(e.target.value)}
+                  placeholder="CN=BB-Admins,CN=Users,DC=corp,DC=local"
+                  disabled={!ldapEnabled}
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Группа: Инженер"
+                  value={ldapRoleEngineer}
+                  onChange={(e) => setLdapRoleEngineer(e.target.value)}
+                  placeholder="CN=BB-Engineers,CN=Users,DC=corp,DC=local"
+                  disabled={!ldapEnabled}
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Группа: Оператор"
+                  value={ldapRoleOperator}
+                  onChange={(e) => setLdapRoleOperator(e.target.value)}
+                  placeholder="CN=BB-Operators,CN=Users,DC=corp,DC=local"
+                  disabled={!ldapEnabled}
+                />
+              </Grid>
+
+              <Grid item xs={12}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Button
+                    variant="contained"
+                    onClick={handleSaveLDAP}
+                    disabled={ldapSaving}
+                    startIcon={<SaveIcon />}
+                  >
+                    {ldapSaving ? 'Сохранение...' : 'Сохранить'}
+                  </Button>
+                  {ldapSaveMessage && (
+                    <Typography
+                      variant="body2"
+                      color={ldapSaveMessage.includes('Ошибка') ? 'error' : 'success.main'}
+                    >
+                      {ldapSaveMessage}
+                    </Typography>
+                  )}
+                </Box>
+              </Grid>
+            </Grid>
           </CardContent>
         </Card>
 

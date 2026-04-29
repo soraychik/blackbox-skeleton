@@ -55,15 +55,9 @@ api.interceptors.response.use(
   }
 );
 
-export const login = async (loginValue, password) => {
-  return {
-    token: 'mock-token-' + Date.now(),
-    user: {
-      id: 1,
-      login: loginValue,
-      role: 'admin',
-    },
-  };
+export const login = async (loginValue, password, remember = false) => {
+  const response = await api.post('/auth/login', { login: loginValue, password, remember });
+  return response.data;
 };
 
 export const getDevices = async () => {

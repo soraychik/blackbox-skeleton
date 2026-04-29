@@ -59,6 +59,36 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 		updates["scan_interval_seconds"] = strconv.Itoa(req.ScanIntervalSeconds)
 	}
 
+	if req.LDAPEnabled {
+		updates["ldap_enabled"] = "true"
+	} else {
+		updates["ldap_enabled"] = "false"
+	}
+	if req.LDAPUrl != "" {
+		updates["ldap_url"] = req.LDAPUrl
+	}
+	if req.LDAPBindDN != "" {
+		updates["ldap_bind_dn"] = req.LDAPBindDN
+	}
+	if req.LDAPBindPassword != "" {
+		updates["ldap_bind_password"] = req.LDAPBindPassword
+	}
+	if req.LDAPUserBase != "" {
+		updates["ldap_user_base"] = req.LDAPUserBase
+	}
+	if req.LDAPUserFilter != "" {
+		updates["ldap_user_filter"] = req.LDAPUserFilter
+	}
+	if req.LDAPRoleAdmin != "" {
+		updates["ldap_role_admin"] = req.LDAPRoleAdmin
+	}
+	if req.LDAPRoleEngineer != "" {
+		updates["ldap_role_engineer"] = req.LDAPRoleEngineer
+	}
+	if req.LDAPRoleOperator != "" {
+		updates["ldap_role_operator"] = req.LDAPRoleOperator
+	}
+
 	for key, value := range updates {
 		if _, err := h.db.Exec(`
 			INSERT INTO system_settings (settings_key, settings_value)
@@ -130,7 +160,23 @@ func (h *SettingsHandler) loadSettings() (*models.SystemSettings, error) {
 			if n, err := strconv.Atoi(value); err == nil {
 				settings.ScanIntervalSeconds = n
 			}
-		// Пароль намеренно не возвращаем в ответе
+		case "ldap_enabled":
+			settings.LDAPEnabled = value == "true"
+		case "ldap_url":
+			settings.LDAPUrl = value
+		case "ldap_bind_dn":
+			settings.LDAPBindDN = value
+		case "ldap_user_base":
+			settings.LDAPUserBase = value
+		case "ldap_user_filter":
+			settings.LDAPUserFilter = value
+		case "ldap_role_admin":
+			settings.LDAPRoleAdmin = value
+		case "ldap_role_engineer":
+			settings.LDAPRoleEngineer = value
+		case "ldap_role_operator":
+			settings.LDAPRoleOperator = value
+		// smb_password и ldap_bind_password намеренно не возвращаем в ответе
 		}
 	}
 

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { login } from '../utils/api';
 import {
   Alert,
   Box,
@@ -46,16 +47,16 @@ const LoginPage = () => {
     setLoading(true);
     setError(null);
 
-    setTimeout(() => {
-      localStorage.setItem('token', 'mock-token-' + Date.now());
-      localStorage.setItem('user', JSON.stringify({
-        id: 1,
-        login: formData.login,
-        role: 'admin',
-      }));
-      setLoading(false);
-      navigate('/');
-    }, 500);
+    login(formData.login, formData.password, rememberMe)
+      .then((data) => {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        navigate('/');
+      })
+      .catch((err) => {
+        setError(err.response?.data?.error || 'Ошибка входа');
+      })
+      .finally(() => setLoading(false));
   };
 
   return (
