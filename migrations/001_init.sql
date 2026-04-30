@@ -6,18 +6,11 @@ SET character_set_client = utf8mb4;
 SET character_set_connection = utf8mb4;
 SET character_set_results = utf8mb4;
 
-DROP TABLE IF EXISTS audit;
-DROP TABLE IF EXISTS diff_index;
-DROP TABLE IF EXISTS jobs;
-DROP TABLE IF EXISTS search_index;
-DROP TABLE IF EXISTS device_file_state;
-DROP TABLE IF EXISTS system_settings;
-DROP TABLE IF EXISTS config_versions;
-DROP TABLE IF EXISTS users;
-DROP TABLE IF EXISTS site_mappings;
-DROP TABLE IF EXISTS devices;
+-- Этот файл выполняется ТОЛЬКО при первом создании volume (пустая БД).
+-- Для существующих БД используется migrate сервис с папкой migrations/.
+-- DROP TABLE намеренно убраны — данные не удаляются никогда.
 
-CREATE TABLE devices (
+CREATE TABLE IF NOT EXISTS devices (
     id INT AUTO_INCREMENT PRIMARY KEY,
     hostname VARCHAR(255) NOT NULL UNIQUE,
     mgmt_ip VARCHAR(45),
@@ -28,17 +21,17 @@ CREATE TABLE devices (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
-CREATE TABLE site_mappings (
+CREATE TABLE IF NOT EXISTS site_mappings (
     code VARCHAR(32) PRIMARY KEY,
     name VARCHAR(128) NOT NULL
 ) ENGINE=InnoDB;
 
-INSERT INTO site_mappings (code, name) VALUES
+INSERT IGNORE INTO site_mappings (code, name) VALUES
     ('ekb', 'Екатеринбург'),
     ('ntg', 'Нижний Тагил'),
     ('kur', 'Каменск-Уральский');
 
-CREATE TABLE config_versions (
+CREATE TABLE IF NOT EXISTS config_versions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     device_id INT NOT NULL,
     version_hash CHAR(64) NOT NULL,
@@ -58,7 +51,7 @@ CREATE TABLE config_versions (
     INDEX idx_chain_base (chain_base_id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE diff_index (
+CREATE TABLE IF NOT EXISTS diff_index (
     id INT AUTO_INCREMENT PRIMARY KEY,
     left_version_id INT NOT NULL,
     right_version_id INT NOT NULL,
@@ -71,7 +64,7 @@ CREATE TABLE diff_index (
     UNIQUE KEY uq_pair (left_version_id, right_version_id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE jobs (
+CREATE TABLE IF NOT EXISTS jobs (
     id INT AUTO_INCREMENT PRIMARY KEY,
     type VARCHAR(64) NOT NULL,
     status ENUM('pending','running','done','failed') NOT NULL DEFAULT 'pending',
@@ -82,7 +75,7 @@ CREATE TABLE jobs (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     login VARCHAR(128) NOT NULL UNIQUE,
     pass_hash VARCHAR(256) NOT NULL,
@@ -91,7 +84,7 @@ CREATE TABLE users (
     last_login_at DATETIME
 ) ENGINE=InnoDB;
 
-CREATE TABLE audit (
+CREATE TABLE IF NOT EXISTS audit (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NULL,
     action VARCHAR(128) NOT NULL,
@@ -102,11 +95,4 @@ CREATE TABLE audit (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
     INDEX idx_audit_created (created_at),
     INDEX idx_audit_user (user_id)
-) ENGINE=InnoDB;
-
-CREATE TABLE system_settings (
-    settings_key   VARCHAR(128) NOT NULL PRIMARY KEY,
-    settings_value TEXT,
-    updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-        ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
