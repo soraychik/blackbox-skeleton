@@ -3,6 +3,11 @@ services:
     image: mysql:8.0
     container_name: blackbox-mysql
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "7"
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
       MYSQL_DATABASE: blackbox
@@ -47,6 +52,11 @@ services:
     image: minio/minio:latest
     container_name: blackbox-minio
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "7"
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -68,6 +78,11 @@ services:
     build: ./scheduler
     container_name: blackbox-scheduler
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "10"
     privileged: true
     cap_add:
       - SYS_ADMIN
@@ -95,6 +110,11 @@ services:
     build: ./api
     container_name: blackbox-api
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "10"
     env_file:
       - .env
     environment:
@@ -119,6 +139,11 @@ services:
         - VITE_API_URL=${VITE_API_URL:-/api}
     container_name: blackbox-nginx
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "10"
     ports:
       - "80:80"
     extra_hosts:
