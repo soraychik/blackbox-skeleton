@@ -13,6 +13,7 @@ import {
   Autocomplete,
   TextField,
 } from '@mui/material';
+import { Download as DownloadIcon } from '@mui/icons-material';
 import { getVersions, getVersionDiff } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
 import ListboxComponent from '../utils/VirtualListbox';
@@ -143,7 +144,58 @@ const DiffRow = ({ line, theme, lineNumWidth }) => {
   );
 };
 
-const DiffStats = ({ stats, totalLines }) => (
+const buildUnifiedDiff = (lines, leftName, rightName) => {
+  const SPLIT_THRESHOLD = 7;
+  const CONTEXT = 3;
+  const header = [`--- ${leftName}`, `+++ ${rightName}`];
+
+  const hunks = [];
+  let currentHunk = [];
+  let unchangedRun = 0;
+
+  for (const line of lines) {
+    if (line.type === 'unchanged') {
+      unchangedRun++;
+      currentHunk.push(line);
+      if (unchangedRun >= SPLIT_THRESHOLD) {
+        const trimmed = currentHunk.slice(0, currentHunk.length - unchangedRun + CONTEXT);
+        if (trimmed.some(l => l.type !== 'unchanged')) {
+          hunks.push(trimmed);
+        }
+        currentHunk = currentHunk.slice(currentHunk.length - CONTEXT);
+        unchangedRun = CONTEXT;
+      }
+    } else {
+      unchangedRun = 0;
+      currentHunk.push(line);
+    }
+  }
+
+  if (currentHunk.some(l => l.type !== 'unchanged')) {
+    let lastChanged = currentHunk.length - 1;
+    while (lastChanged >= 0 && currentHunk[lastChanged].type === 'unchanged') lastChanged--;
+    hunks.push(currentHunk.slice(0, Math.min(currentHunk.length, lastChanged + 1 + CONTEXT)));
+  }
+
+  const output = [...header];
+  for (const hunkLines of hunks) {
+    const leftLines = hunkLines.filter(l => l.type !== 'added');
+    const rightLines = hunkLines.filter(l => l.type !== 'removed');
+    const leftStart = leftLines.find(l => l.leftLineNum)?.leftLineNum || 1;
+    const rightStart = rightLines.find(l => l.rightLineNum)?.rightLineNum || 1;
+    output.push(`@@ -${leftStart},${leftLines.length} +${rightStart},${rightLines.length} @@`);
+    for (const line of hunkLines) {
+      const c = line.content || '';
+      if (line.type === 'added') output.push(`+${c}`);
+      else if (line.type === 'removed') output.push(`-${c}`);
+      else output.push(` ${c}`);
+    }
+  }
+
+  return output.join('\n') + '\n';
+};
+
+const DiffStats = ({ stats, totalLines, onDownload }) => (
   <Box
     sx={{
       display: 'flex',
@@ -167,6 +219,11 @@ const DiffStats = ({ stats, totalLines }) => (
     <Typography sx={{ color: 'text.secondary', fontSize: '0.75rem', ml: 'auto' }}>
       Всего строк: {totalLines}
     </Typography>
+    {onDownload && (
+      <Button size="small" startIcon={<DownloadIcon />} onClick={onDownload} variant="outlined" sx={{ ml: 1, fontFamily: 'inherit' }}>
+        Скачать .patch
+      </Button>
+    )}
   </Box>
 );
 
@@ -184,6 +241,7 @@ const ChangesTab = ({
   leftVersionId = null,
   rightVersionId = null,
   onViewVersion = null,
+  downloadFilename = null,
 }) => {
   const theme = useTheme();
   const navigate = useNavigate();
@@ -311,6 +369,28 @@ const ChangesTab = ({
       lineNumWidth,
     };
   }, [diffData]);
+
+  const handleDownloadDiff = useCallback(() => {
+    if (!processedDiff || processedDiff.identical) return;
+
+    const leftName = leftTitle
+      || (deviceName ? `${deviceName}${version1Date ? ` (${version1Date})` : ''}` : `version-${diffData?.left_version_id}`);
+    const rightName = rightTitle
+      || ((rightDeviceName || deviceName) ? `${rightDeviceName || deviceName}${version2Date ? ` (${version2Date})` : ''}` : `version-${diffData?.right_version_id}`);
+
+    const content = buildUnifiedDiff(processedDiff.lines, leftName, rightName);
+
+    const safe = (s) => String(s || '').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '-').substring(0, 40);
+    const filename = downloadFilename || `diff-${safe(leftName)}-vs-${safe(rightName)}.patch`;
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [processedDiff, leftTitle, rightTitle, deviceName, rightDeviceName, version1Date, version2Date, diffData, downloadFilename]);
 
   if (loading) {
     return (
@@ -444,7 +524,7 @@ const ChangesTab = ({
             </Box>
           ) : (
             <>
-              <DiffStats stats={processedDiff.stats} totalLines={processedDiff.totalLines} />
+              <DiffStats stats={processedDiff.stats} totalLines={processedDiff.totalLines} onDownload={handleDownloadDiff} />
 
               <Box
                 sx={{

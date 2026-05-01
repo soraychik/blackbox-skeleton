@@ -28,6 +28,7 @@ import {
   Close as CloseIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
   KeyboardArrowUp as KeyboardArrowUpIcon,
+  FileDownload as FileDownloadIcon,
 } from '@mui/icons-material';
 import { searchChanges, getVersionDiff } from '../utils/api';
 import ChangesTab from '../components/ChangesTab';
@@ -122,6 +123,38 @@ const SearchChanges = () => {
     setDiffDialog({ open: false, loading: false, data: null, deviceId: null, deviceName: null, version1Date: null, version2Date: null });
   };
 
+  const handleExportCSV = () => {
+    if (!results || results.length === 0) return;
+    const rows = [['hostname', 'mgmt_ip', 'vendor', 'model', 'date_from', 'date_to', 'added_lines', 'removed_lines']];
+    for (const device of results) {
+      for (const ch of (device.changes || [])) {
+        rows.push([
+          device.hostname, device.mgmt_ip || '', device.vendor || '', device.model || '',
+          ch.left_date || '', ch.right_date || '', ch.added_count || 0, ch.removed_count || 0,
+        ]);
+      }
+    }
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `changes-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportJSON = () => {
+    if (!results || results.length === 0) return;
+    const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `changes-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <Box>
       <Typography variant="h4" fontWeight={600} gutterBottom>
@@ -207,9 +240,21 @@ const SearchChanges = () => {
       {results && (
         <Card>
           <CardContent>
-            <Typography variant="h6" fontWeight={600} gutterBottom>
-              Результаты: устройств с подходящими изменениями — {results.length}
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="h6" fontWeight={600}>
+                Результаты: устройств с подходящими изменениями — {results.length}
+              </Typography>
+              {results.length > 0 && (
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button size="small" variant="outlined" startIcon={<FileDownloadIcon />} onClick={handleExportCSV}>
+                    CSV
+                  </Button>
+                  <Button size="small" variant="outlined" startIcon={<FileDownloadIcon />} onClick={handleExportJSON}>
+                    JSON
+                  </Button>
+                </Box>
+              )}
+            </Box>
             <TableContainer>
               <Table>
                 <TableHead>
