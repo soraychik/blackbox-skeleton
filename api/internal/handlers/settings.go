@@ -60,6 +60,9 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 	if req.ScanIntervalSeconds >= 5 {
 		updates["scan_interval_seconds"] = strconv.Itoa(req.ScanIntervalSeconds)
 	}
+	if req.DiffThreshold > 0 {
+		updates["diff_threshold"] = strconv.FormatFloat(req.DiffThreshold, 'f', -1, 64)
+	}
 
 	if req.LDAPEnabled {
 		updates["ldap_enabled"] = "true"
@@ -164,6 +167,10 @@ func (h *SettingsHandler) loadSettings() (*models.SystemSettings, error) {
 		case "scan_interval_seconds":
 			if n, err := strconv.Atoi(value); err == nil {
 				settings.ScanIntervalSeconds = n
+			}
+		case "diff_threshold":
+			if f, err := strconv.ParseFloat(value, 64); err == nil {
+				settings.DiffThreshold = f
 			}
 		case "ldap_enabled":
 			settings.LDAPEnabled = value == "true"

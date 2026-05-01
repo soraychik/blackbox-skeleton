@@ -643,6 +643,7 @@ type ConfigSourceSettings struct {
 	NfsServer           string
 	NfsPath             string
 	ScanIntervalSeconds int
+	DiffThreshold       float64
 }
 
 // GetConfigSourceSettings читает все настройки источника одним запросом.
@@ -652,7 +653,7 @@ func (db *DB) GetConfigSourceSettings() (*ConfigSourceSettings, error) {
 		 WHERE settings_key IN (
 			'config_source_type','config_source_path',
 			'smb_username','smb_password','smb_domain',
-			'scan_interval_seconds'
+			'scan_interval_seconds','diff_threshold'
 		 )`,
 	)
 	if err != nil {
@@ -687,6 +688,10 @@ func (db *DB) GetConfigSourceSettings() (*ConfigSourceSettings, error) {
 		case "scan_interval_seconds":
 			if n, err := strconv.Atoi(value); err == nil && n >= 5 {
 				s.ScanIntervalSeconds = n
+			}
+		case "diff_threshold":
+			if f, err := strconv.ParseFloat(value, 64); err == nil && f > 0 {
+				s.DiffThreshold = f
 			}
 		}
 	}

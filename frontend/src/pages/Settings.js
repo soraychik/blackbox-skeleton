@@ -85,6 +85,8 @@ const Settings = () => {
   const [smbUsername, setSmbUsername] = React.useState('');
   const [smbPassword, setSmbPassword] = React.useState('');
   const [smbDomain, setSmbDomain] = React.useState('WORKGROUP');
+  const [scanInterval, setScanInterval] = React.useState(300);
+  const [diffThreshold, setDiffThreshold] = React.useState(0.1);
   const [saving, setSaving] = React.useState(false);
   const [saveMessage, setSaveMessage] = React.useState('');
 
@@ -107,6 +109,8 @@ const Settings = () => {
         if (settings.config_source_path) setConfigSourcePath(settings.config_source_path);
         if (settings.smb_username) setSmbUsername(settings.smb_username);
         if (settings.smb_domain) setSmbDomain(settings.smb_domain);
+        if (settings.scan_interval_seconds) setScanInterval(settings.scan_interval_seconds);
+        if (settings.diff_threshold) setDiffThreshold(settings.diff_threshold);
         setLdapEnabled(!!settings.ldap_enabled);
         if (settings.ldap_url) setLdapUrl(settings.ldap_url);
         if (settings.ldap_bind_dn) setLdapBindDn(settings.ldap_bind_dn);
@@ -118,6 +122,26 @@ const Settings = () => {
       })
       .catch((err) => console.error('Failed to load settings:', err));
   }, []);
+
+  const [scanSaving, setScanSaving] = React.useState(false);
+  const [scanSaveMessage, setScanSaveMessage] = React.useState('');
+
+  const handleSaveScanParams = async () => {
+    setScanSaving(true);
+    setScanSaveMessage('');
+    try {
+      await updateSettings({
+        scan_interval_seconds: Number(scanInterval),
+        diff_threshold: Number(diffThreshold),
+      });
+      setScanSaveMessage('Сохранено');
+    } catch (err) {
+      setScanSaveMessage('Ошибка: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setScanSaving(false);
+      setTimeout(() => setScanSaveMessage(''), 3000);
+    }
+  };
 
   const handleSaveConfigSource = async () => {
     setSaving(true);
@@ -484,87 +508,50 @@ const Settings = () => {
               <Typography variant="h5" fontWeight={600}>Параметры сканирования</Typography>
             </Box>
             <Divider sx={{ mb: 3 }} />
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Параметры задаются через переменные окружения. Управление через интерфейс запланировано.
-            </Typography>
             <Grid container spacing={3}>
               <Grid item xs={12} sm={6}>
                 <TextField
-                  fullWidth label="Интервал автосканирования (сек)" type="number"
-                  placeholder="300" helperText="SCAN_INTERVAL_SECONDS — период между автоматическими сканированиями"
+                  fullWidth
+                  label="Интервал автосканирования (сек)"
+                  type="number"
+                  value={scanInterval}
+                  onChange={(e) => setScanInterval(e.target.value)}
+                  helperText="Период между автоматическими сканированиями (мин. 5 сек)"
                   inputProps={{ min: 5 }}
-                  disabled
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
-                  fullWidth label="Порог фиксации изменений" type="number"
-                  placeholder="0.1" helperText="DIFF_THRESHOLD — минимальная доля изменений для сохранения новой версии (0–1)"
-                  inputProps={{ step: 0.01, min: 0, max: 1 }}
-                  disabled
+                  fullWidth
+                  label="Порог фиксации изменений (0–1)"
+                  type="number"
+                  value={diffThreshold}
+                  onChange={(e) => setDiffThreshold(e.target.value)}
+                  helperText="Минимальная доля изменений для сохранения новой версии"
+                  inputProps={{ step: 0.01, min: 0.01, max: 1 }}
                 />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth label="Таймаут подключения (сек)" type="number"
-                  placeholder="15" helperText="Максимальное время ожидания при установке соединения с источником"
-                  inputProps={{ min: 1 }}
-                  disabled
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth label="Максимальный размер файла (МБ)" type="number"
-                  placeholder="50" helperText="Файлы, превышающие указанный размер, будут пропущены при обработке"
-                  inputProps={{ min: 1 }}
-                  disabled
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth label="Количество повторных попыток" type="number"
-                  placeholder="3" helperText="Число повторных попыток при сбое подключения к источнику"
-                  inputProps={{ min: 0, max: 10 }}
-                  disabled
-                />
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
-
-        {/* MinIO */}
-        <Card>
-          <CardContent sx={{ p: 4 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
-              <CloudIcon color="primary" sx={{ fontSize: 28 }} />
-              <Typography variant="h5" fontWeight={600}>MinIO (хранилище)</Typography>
-            </Box>
-            <Divider sx={{ mb: 3 }} />
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
-              Настройка подключения к объектному хранилищу
-            </Typography>
-            <Grid container spacing={3}>
-              <Grid item xs={12} sm={6}>
-                <TextField fullWidth label="Endpoint" placeholder="minio:9000" />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField fullWidth label="Bucket" placeholder="blackbox" />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField fullWidth label="Access Key" placeholder="minioadmin" />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField fullWidth label="Secret Key" type="password" placeholder="minioadmin123" />
               </Grid>
               <Grid item xs={12}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Typography variant="body1">Использовать SSL</Typography>
-                  <Switch defaultChecked={false} />
+                  <Button
+                    variant="contained"
+                    onClick={handleSaveScanParams}
+                    disabled={scanSaving}
+                    startIcon={<SaveIcon />}
+                  >
+                    {scanSaving ? 'Сохранение...' : 'Сохранить'}
+                  </Button>
+                  {scanSaveMessage && (
+                    <Typography variant="body2" color={scanSaveMessage.includes('Ошибка') ? 'error' : 'success.main'}>
+                      {scanSaveMessage}
+                    </Typography>
+                  )}
                 </Box>
               </Grid>
             </Grid>
           </CardContent>
         </Card>
+
 
       </Box>
     </Box>

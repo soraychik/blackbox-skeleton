@@ -8,11 +8,7 @@ services:
       options:
         max-size: "50m"
         max-file: "7"
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: blackbox
-      MYSQL_USER: appuser
-      MYSQL_PASSWORD: apppassword
+    env_file: .env
     ports:
       - "3306:3306"
     volumes:
@@ -21,13 +17,13 @@ services:
     networks:
       - blackbox-net
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uappuser", "-papppassword"]
-      timeout: 20s
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u${MYSQL_USER}", "-p${MYSQL_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
       retries: 10
       start_period: 30s
 
-  # Сервис миграций — запускается один раз после mysql-db, затем завершается.
-  # Применяет только новые файлы из папки migrations/ (уже применённые пропускает).
+  # Запускается один раз после mysql-db, применяет новые миграции и завершается.
   migrate:
     build:
       context: .
@@ -36,12 +32,12 @@ services:
     restart: "no"
     volumes:
       - ./migrations:/migrations:ro
+    env_file: .env
     environment:
       DATABASE_HOST: mysql-db
-      DATABASE_PORT: "3306"
-      DATABASE_USER: appuser
-      DATABASE_PASSWORD: apppassword
-      DATABASE_NAME: blackbox
+      DATABASE_USER: ${MYSQL_USER}
+      DATABASE_PASSWORD: ${MYSQL_PASSWORD}
+      DATABASE_NAME: ${MYSQL_DATABASE}
     depends_on:
       mysql-db:
         condition: service_healthy
@@ -61,8 +57,8 @@ services:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
     volumes:
       - minio_data:/data
     networks:
@@ -71,7 +67,7 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
-      timeout: 20s
+      timeout: 5s
       retries: 3
 
   scheduler:
@@ -83,19 +79,15 @@ services:
       options:
         max-size: "100m"
         max-file: "10"
-    privileged: true
-    cap_add:
-      - SYS_ADMIN
-    devices:
-      - /dev/fuse
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - /:/host:ro
-    env_file:
-      - .env
+    env_file: .env
     environment:
-      # При network_mode: host Docker DNS недоступен — подключаемся через хостовые порты
+      # network_mode: host — Docker DNS недоступен, используем 127.0.0.1
       DATABASE_HOST: "127.0.0.1"
+      DATABASE_USER: ${MYSQL_USER}
+      DATABASE_PASSWORD: ${MYSQL_PASSWORD}
+      DATABASE_NAME: ${MYSQL_DATABASE}
       MINIO_ENDPOINT: "127.0.0.1:9000"
     depends_on:
       mysql-db:
@@ -115,11 +107,13 @@ services:
       options:
         max-size: "100m"
         max-file: "10"
-    env_file:
-      - .env
+    env_file: .env
     environment:
-      # network_mode: host — используем 127.0.0.1 вместо Docker DNS имён
+      # network_mode: host — Docker DNS недоступен, используем 127.0.0.1
       DATABASE_HOST: "127.0.0.1"
+      DATABASE_USER: ${MYSQL_USER}
+      DATABASE_PASSWORD: ${MYSQL_PASSWORD}
+      DATABASE_NAME: ${MYSQL_DATABASE}
       MINIO_ENDPOINT: "127.0.0.1:9000"
       SCHEDULER_TRIGGER_URL: "http://127.0.0.1:9090"
     depends_on:

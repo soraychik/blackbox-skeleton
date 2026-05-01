@@ -71,6 +71,9 @@ func main() {
 
 	useMinIO := os.Getenv("USE_MINIO") == "true"
 	diffThreshold := getEnvFloat("DIFF_THRESHOLD", 0.1)
+	if cfg, err := db.GetConfigSourceSettings(); err == nil && cfg.DiffThreshold > 0 {
+		diffThreshold = cfg.DiffThreshold
+	}
 	log.Printf("storage: minio=%t, thresholdDiff=%.2f", useMinIO, diffThreshold)
 
 	processor, err := fileprocessor.NewImprovedFileProcessor(useMinIO, diffThreshold)

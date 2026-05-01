@@ -145,11 +145,12 @@ type DeviceVersionRow struct {
 }
 
 type SystemSettings struct {
-	ConfigSourceType    string `json:"config_source_type"`
-	ConfigSourcePath    string `json:"config_source_path"`
-	SmbUsername         string `json:"smb_username,omitempty"`
-	SmbDomain           string `json:"smb_domain,omitempty"`
-	ScanIntervalSeconds int    `json:"scan_interval_seconds"`
+	ConfigSourceType    string  `json:"config_source_type"`
+	ConfigSourcePath    string  `json:"config_source_path"`
+	SmbUsername         string  `json:"smb_username,omitempty"`
+	SmbDomain           string  `json:"smb_domain,omitempty"`
+	ScanIntervalSeconds int     `json:"scan_interval_seconds"`
+	DiffThreshold       float64 `json:"diff_threshold"`
 	// SmbPassword намеренно не возвращается в ответе API
 
 	LDAPEnabled      bool   `json:"ldap_enabled"`
@@ -164,12 +165,13 @@ type SystemSettings struct {
 }
 
 type SettingsUpdateRequest struct {
-	ConfigSourceType    string `json:"config_source_type"`
-	ConfigSourcePath    string `json:"config_source_path"`
-	SmbUsername         string `json:"smb_username"`
-	SmbPassword         string `json:"smb_password"`
-	SmbDomain           string `json:"smb_domain"`
-	ScanIntervalSeconds int    `json:"scan_interval_seconds"`
+	ConfigSourceType    string  `json:"config_source_type"`
+	ConfigSourcePath    string  `json:"config_source_path"`
+	SmbUsername         string  `json:"smb_username"`
+	SmbPassword         string  `json:"smb_password"`
+	SmbDomain           string  `json:"smb_domain"`
+	ScanIntervalSeconds int     `json:"scan_interval_seconds"`
+	DiffThreshold       float64 `json:"diff_threshold"`
 
 	LDAPEnabled      bool   `json:"ldap_enabled"`
 	LDAPUrl          string `json:"ldap_url"`
