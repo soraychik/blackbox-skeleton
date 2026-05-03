@@ -25,6 +25,7 @@ import {
   FileDownload as FileDownloadIcon,
 } from '@mui/icons-material';
 import { searchPattern, getVersionContent } from '../utils/api';
+import { downloadText, downloadCsv } from '../utils/downloadFile';
 import ConfigViewDialog from '../components/ConfigViewDialog';
 
 const Search = () => {
@@ -68,21 +69,10 @@ const Search = () => {
 
   const handleExportCsv = () => {
     if (!results) return;
-
-    const csvContent = [
-      ['Устройство', 'IP адрес', 'Совпадений'],
-      ...results.map((r) => [r.hostname, r.mgmt_ip || '', r.match_count]),
-    ]
-      .map((row) => row.join(','))
-      .join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `search_results_${Date.now()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(
+      [['Устройство', 'IP адрес', 'Совпадений'], ...results.map(r => [r.hostname, r.mgmt_ip || '', r.match_count])],
+      `search_results_${Date.now()}.csv`,
+    );
   };
 
   const handleRowClick = (result) => {
@@ -101,13 +91,7 @@ const Search = () => {
     setSnippetsDialog((prev) => ({ ...prev, downloadLoading: true }));
     try {
       const content = await getVersionContent(snippetsDialog.versionId);
-      const blob = new Blob([content], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `config_${snippetsDialog.device}.txt`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadText(content, `config_${snippetsDialog.device}.txt`);
     } catch {
       setError('Не удалось скачать конфигурацию');
     } finally {

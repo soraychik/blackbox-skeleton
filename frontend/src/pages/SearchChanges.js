@@ -33,6 +33,7 @@ import {
   FileDownload as FileDownloadIcon,
 } from '@mui/icons-material';
 import { searchChanges, getVersionDiff } from '../utils/api';
+import { downloadCsv, downloadJson } from '../utils/downloadFile';
 import ChangesTab from '../components/ChangesTab';
 
 /**
@@ -128,35 +129,20 @@ const SearchChanges = () => {
   };
 
   const handleExportCSV = () => {
-    if (!results || results.length === 0) return;
+    if (!results?.length) return;
     const rows = [['hostname', 'mgmt_ip', 'vendor', 'model', 'date_from', 'date_to', 'added_lines', 'removed_lines']];
     for (const device of results) {
       for (const ch of (device.changes || [])) {
-        rows.push([
-          device.hostname, device.mgmt_ip || '', device.vendor || '', device.model || '',
-          ch.left_date || '', ch.right_date || '', ch.added_count || 0, ch.removed_count || 0,
-        ]);
+        rows.push([device.hostname, device.mgmt_ip || '', device.vendor || '', device.model || '',
+          ch.left_date || '', ch.right_date || '', ch.added_count || 0, ch.removed_count || 0]);
       }
     }
-    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `changes-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(rows, `changes-${new Date().toISOString().slice(0, 10)}.csv`);
   };
 
   const handleExportJSON = () => {
-    if (!results || results.length === 0) return;
-    const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `changes-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    if (!results?.length) return;
+    downloadJson(results, `changes-${new Date().toISOString().slice(0, 10)}.json`);
   };
 
   return (

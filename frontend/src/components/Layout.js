@@ -22,6 +22,7 @@ import {
   useTheme,
 } from '@mui/material';
 import { useRole } from '../utils/useRole';
+import { useAuth } from '../utils/useAuth';
 import {
   Compare as CompareIcon,
   Dashboard as DashboardIcon,
@@ -221,6 +222,7 @@ const UserMenu = ({ login, label, role, onLogout, onSettings }) => {
 
 const Layout = ({ settings, onSettingsChange }) => {
   const { role, login, label } = useRole();
+  const { clearSession } = useAuth();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
@@ -268,10 +270,9 @@ const Layout = ({ settings, onSettingsChange }) => {
   );
 
   const handleLogout = useCallback(() => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    clearSession();
     navigate('/login');
-  }, [navigate]);
+  }, [clearSession, navigate]);
 
   const sidebarContent = (
     <SidebarContent

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { login } from '../utils/api';
+import { useAuth } from '../utils/useAuth';
 import {
   Alert,
   Box,
@@ -23,6 +24,7 @@ import {
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const { saveSession } = useAuth();
   const [formData, setFormData] = useState({
     login: '',
     password: '',
@@ -49,8 +51,7 @@ const LoginPage = () => {
 
     login(formData.login, formData.password, rememberMe)
       .then((data) => {
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
+        saveSession(data.token, data.user);
         navigate('/');
       })
       .catch((err) => {

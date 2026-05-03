@@ -14,6 +14,7 @@ import {
   TextField,
 } from '@mui/material';
 import { Download as DownloadIcon } from '@mui/icons-material';
+import { downloadText } from '../utils/downloadFile';
 import { getVersions, getVersionDiff } from '../utils/api';
 import { formatDateTime } from '../utils/dateFormatter';
 import ListboxComponent from '../utils/VirtualListbox';
@@ -383,13 +384,7 @@ const ChangesTab = ({
     const safe = (s) => String(s || '').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '-').substring(0, 40);
     const filename = downloadFilename || `diff-${safe(leftName)}-vs-${safe(rightName)}.patch`;
 
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadText(content, filename);
   }, [processedDiff, leftTitle, rightTitle, deviceName, rightDeviceName, version1Date, version2Date, diffData, downloadFilename]);
 
   if (loading) {

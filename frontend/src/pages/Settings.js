@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useReducer, useEffect, useContext } from 'react';
 import {
   Box,
   Card,
@@ -23,11 +23,48 @@ import {
   Folder as FolderIcon,
   Security as SecurityIcon,
   Settings as SettingsIcon,
-  Cloud as CloudIcon,
   Save as SaveIcon,
 } from '@mui/icons-material';
 import { SettingsContext } from '../components/Layout';
 import { getSettings, updateSettings } from '../utils/api';
+
+// --- state ---
+
+const initialState = {
+  // Источник конфигов
+  fileServerType: 'local',
+  configSourcePath: '',
+  smbUsername: '',
+  smbPassword: '',
+  smbDomain: 'WORKGROUP',
+  sourceSaving: false,
+  sourceMessage: '',
+  // Параметры сканирования
+  scanInterval: 300,
+  diffThreshold: 0.1,
+  scanSaving: false,
+  scanMessage: '',
+  // LDAP
+  ldapEnabled: false,
+  ldapUrl: '',
+  ldapBindDn: '',
+  ldapBindPassword: '',
+  ldapUserBase: '',
+  ldapUserFilter: '(sAMAccountName=%s)',
+  ldapRoleAdmin: '',
+  ldapRoleEngineer: '',
+  ldapRoleOperator: '',
+  ldapSaving: false,
+  ldapMessage: '',
+};
+
+const reducer = (state, action) => {
+  switch (action.type) {
+    case 'SET': return { ...state, [action.field]: action.value };
+    case 'LOAD': return { ...state, ...action.settings };
+    default: return state;
+  }
+};
 
 const ACCENT_COLORS = [
   { value: '#2563eb', label: 'Синий' },
@@ -78,117 +115,88 @@ const ScaleSelector = ({ value, onChange }) => {
 
 const Settings = () => {
   const { darkMode, setDarkMode, scale, setScale, accentColor, setAccentColor } =
-    React.useContext(SettingsContext);
+    useContext(SettingsContext);
 
-  const [fileServerType, setFileServerType] = React.useState('local');
-  const [configSourcePath, setConfigSourcePath] = React.useState('');
-  const [smbUsername, setSmbUsername] = React.useState('');
-  const [smbPassword, setSmbPassword] = React.useState('');
-  const [smbDomain, setSmbDomain] = React.useState('WORKGROUP');
-  const [scanInterval, setScanInterval] = React.useState(300);
-  const [diffThreshold, setDiffThreshold] = React.useState(0.1);
-  const [saving, setSaving] = React.useState(false);
-  const [saveMessage, setSaveMessage] = React.useState('');
+  const [s, dispatch] = useReducer(reducer, initialState);
+  const set = (field, value) => dispatch({ type: 'SET', field, value });
+  const flash = (msgField, savingField, msg) => {
+    set(msgField, msg);
+    setTimeout(() => set(msgField, ''), 3000);
+    set(savingField, false);
+  };
 
-  const [ldapEnabled, setLdapEnabled] = React.useState(false);
-  const [ldapUrl, setLdapUrl] = React.useState('');
-  const [ldapBindDn, setLdapBindDn] = React.useState('');
-  const [ldapBindPassword, setLdapBindPassword] = React.useState('');
-  const [ldapUserBase, setLdapUserBase] = React.useState('');
-  const [ldapUserFilter, setLdapUserFilter] = React.useState('(sAMAccountName=%s)');
-  const [ldapRoleAdmin, setLdapRoleAdmin] = React.useState('');
-  const [ldapRoleEngineer, setLdapRoleEngineer] = React.useState('');
-  const [ldapRoleOperator, setLdapRoleOperator] = React.useState('');
-  const [ldapSaving, setLdapSaving] = React.useState(false);
-  const [ldapSaveMessage, setLdapSaveMessage] = React.useState('');
-
-  React.useEffect(() => {
+  useEffect(() => {
     getSettings()
-      .then((settings) => {
-        if (settings.config_source_type) setFileServerType(settings.config_source_type);
-        if (settings.config_source_path) setConfigSourcePath(settings.config_source_path);
-        if (settings.smb_username) setSmbUsername(settings.smb_username);
-        if (settings.smb_domain) setSmbDomain(settings.smb_domain);
-        if (settings.scan_interval_seconds) setScanInterval(settings.scan_interval_seconds);
-        if (settings.diff_threshold) setDiffThreshold(settings.diff_threshold);
-        setLdapEnabled(!!settings.ldap_enabled);
-        if (settings.ldap_url) setLdapUrl(settings.ldap_url);
-        if (settings.ldap_bind_dn) setLdapBindDn(settings.ldap_bind_dn);
-        if (settings.ldap_user_base) setLdapUserBase(settings.ldap_user_base);
-        if (settings.ldap_user_filter) setLdapUserFilter(settings.ldap_user_filter);
-        if (settings.ldap_role_admin) setLdapRoleAdmin(settings.ldap_role_admin);
-        if (settings.ldap_role_engineer) setLdapRoleEngineer(settings.ldap_role_engineer);
-        if (settings.ldap_role_operator) setLdapRoleOperator(settings.ldap_role_operator);
-      })
-      .catch((err) => console.error('Failed to load settings:', err));
+      .then(cfg => dispatch({
+        type: 'LOAD',
+        settings: {
+          fileServerType: cfg.config_source_type || 'local',
+          configSourcePath: cfg.config_source_path || '',
+          smbUsername: cfg.smb_username || '',
+          smbDomain: cfg.smb_domain || 'WORKGROUP',
+          scanInterval: cfg.scan_interval_seconds || 300,
+          diffThreshold: cfg.diff_threshold || 0.1,
+          ldapEnabled: !!cfg.ldap_enabled,
+          ldapUrl: cfg.ldap_url || '',
+          ldapBindDn: cfg.ldap_bind_dn || '',
+          ldapUserBase: cfg.ldap_user_base || '',
+          ldapUserFilter: cfg.ldap_user_filter || '(sAMAccountName=%s)',
+          ldapRoleAdmin: cfg.ldap_role_admin || '',
+          ldapRoleEngineer: cfg.ldap_role_engineer || '',
+          ldapRoleOperator: cfg.ldap_role_operator || '',
+        },
+      }))
+      .catch(err => console.error('Failed to load settings:', err));
   }, []);
 
-  const [scanSaving, setScanSaving] = React.useState(false);
-  const [scanSaveMessage, setScanSaveMessage] = React.useState('');
-
-  const handleSaveScanParams = async () => {
-    setScanSaving(true);
-    setScanSaveMessage('');
+  const handleSaveConfigSource = async () => {
+    set('sourceSaving', true);
+    set('sourceMessage', '');
     try {
-      await updateSettings({
-        scan_interval_seconds: Number(scanInterval),
-        diff_threshold: Number(diffThreshold),
-      });
-      setScanSaveMessage('Сохранено');
+      const payload = { config_source_type: s.fileServerType, config_source_path: s.configSourcePath };
+      if (s.fileServerType === 'smb') {
+        payload.smb_username = s.smbUsername;
+        if (s.smbPassword) payload.smb_password = s.smbPassword;
+        payload.smb_domain = s.smbDomain || 'WORKGROUP';
+      }
+      await updateSettings(payload);
+      flash('sourceMessage', 'sourceSaving', 'Настройки сохранены');
     } catch (err) {
-      setScanSaveMessage('Ошибка: ' + (err.response?.data?.error || err.message));
-    } finally {
-      setScanSaving(false);
-      setTimeout(() => setScanSaveMessage(''), 3000);
+      flash('sourceMessage', 'sourceSaving', 'Ошибка: ' + (err.response?.data?.error || err.message));
     }
   };
 
-  const handleSaveConfigSource = async () => {
-    setSaving(true);
-    setSaveMessage('');
+  const handleSaveScanParams = async () => {
+    set('scanSaving', true);
+    set('scanMessage', '');
     try {
-      const payload = {
-        config_source_type: fileServerType,
-        config_source_path: configSourcePath,
-      };
-      if (fileServerType === 'smb') {
-        payload.smb_username = smbUsername;
-        if (smbPassword) payload.smb_password = smbPassword;
-        payload.smb_domain = smbDomain || 'WORKGROUP';
-      }
-      await updateSettings(payload);
-      setSaveMessage('Настройки сохранены');
+      await updateSettings({ scan_interval_seconds: Number(s.scanInterval), diff_threshold: Number(s.diffThreshold) });
+      flash('scanMessage', 'scanSaving', 'Сохранено');
     } catch (err) {
-      setSaveMessage('Ошибка сохранения: ' + (err.response?.data?.error || err.message));
-    } finally {
-      setSaving(false);
-      setTimeout(() => setSaveMessage(''), 3000);
+      flash('scanMessage', 'scanSaving', 'Ошибка: ' + (err.response?.data?.error || err.message));
     }
   };
 
   const handleSaveLDAP = async () => {
-    setLdapSaving(true);
-    setLdapSaveMessage('');
+    set('ldapSaving', true);
+    set('ldapMessage', '');
     try {
       const payload = {
-        ldap_enabled: ldapEnabled,
-        ldap_url: ldapUrl,
-        ldap_bind_dn: ldapBindDn,
-        ldap_user_base: ldapUserBase,
-        ldap_user_filter: ldapUserFilter,
-        ldap_role_admin: ldapRoleAdmin,
-        ldap_role_engineer: ldapRoleEngineer,
-        ldap_role_operator: ldapRoleOperator,
+        ldap_enabled: s.ldapEnabled,
+        ldap_url: s.ldapUrl,
+        ldap_bind_dn: s.ldapBindDn,
+        ldap_user_base: s.ldapUserBase,
+        ldap_user_filter: s.ldapUserFilter,
+        ldap_role_admin: s.ldapRoleAdmin,
+        ldap_role_engineer: s.ldapRoleEngineer,
+        ldap_role_operator: s.ldapRoleOperator,
       };
-      if (ldapBindPassword) payload.ldap_bind_password = ldapBindPassword;
+      if (s.ldapBindPassword) payload.ldap_bind_password = s.ldapBindPassword;
       await updateSettings(payload);
-      setLdapSaveMessage('Настройки сохранены');
-      setLdapBindPassword('');
+      set('ldapBindPassword', '');
+      flash('ldapMessage', 'ldapSaving', 'Настройки сохранены');
     } catch (err) {
-      setLdapSaveMessage('Ошибка: ' + (err.response?.data?.error || err.message));
-    } finally {
-      setLdapSaving(false);
-      setTimeout(() => setLdapSaveMessage(''), 3000);
+      flash('ldapMessage', 'ldapSaving', 'Ошибка: ' + (err.response?.data?.error || err.message));
     }
   };
 
@@ -278,11 +286,8 @@ const Settings = () => {
                   <InputLabel>Тип подключения</InputLabel>
                   <Select
                     label="Тип подключения"
-                    value={fileServerType}
-                    onChange={(e) => {
-                      setFileServerType(e.target.value);
-                      setConfigSourcePath('');
-                    }}
+                    value={s.fileServerType}
+                    onChange={(e) => { set('fileServerType', e.target.value); set('configSourcePath', ''); }}
                   >
                     <MenuItem value="local">Локальная папка</MenuItem>
                     <MenuItem value="smb">SMB / CIFS</MenuItem>
@@ -295,45 +300,29 @@ const Settings = () => {
               <Grid item xs={12} sm={8}>
                 <TextField
                   fullWidth
-                  label={fileServerType === 'local' ? 'Путь к директории' : 'Адрес сетевого ресурса'}
-                  value={configSourcePath}
-                  onChange={(e) => setConfigSourcePath(e.target.value)}
-                  placeholder={pathConfig[fileServerType]?.placeholder}
-                  helperText={pathConfig[fileServerType]?.helper}
+                  label={s.fileServerType === 'local' ? 'Путь к директории' : 'Адрес сетевого ресурса'}
+                  value={s.configSourcePath}
+                  onChange={(e) => set('configSourcePath', e.target.value)}
+                  placeholder={pathConfig[s.fileServerType]?.placeholder}
+                  helperText={pathConfig[s.fileServerType]?.helper}
                 />
               </Grid>
 
               {/* SMB: учётные данные */}
-              {fileServerType === 'smb' && (
+              {s.fileServerType === 'smb' && (
                 <>
                   <Grid item xs={12} sm={4}>
-                    <TextField
-                      fullWidth
-                      label="Имя пользователя"
-                      placeholder="guest"
-                      value={smbUsername}
-                      onChange={(e) => setSmbUsername(e.target.value)}
-                    />
+                    <TextField fullWidth label="Имя пользователя" placeholder="guest"
+                      value={s.smbUsername} onChange={(e) => set('smbUsername', e.target.value)} />
                   </Grid>
                   <Grid item xs={12} sm={4}>
-                    <TextField
-                      fullWidth
-                      label="Пароль"
-                      type="password"
-                      placeholder="••••••••"
-                      value={smbPassword}
-                      onChange={(e) => setSmbPassword(e.target.value)}
-                      helperText="Оставьте пустым, чтобы сохранить текущий пароль"
-                    />
+                    <TextField fullWidth label="Пароль" type="password" placeholder="••••••••"
+                      value={s.smbPassword} onChange={(e) => set('smbPassword', e.target.value)}
+                      helperText="Оставьте пустым, чтобы сохранить текущий пароль" />
                   </Grid>
                   <Grid item xs={12} sm={4}>
-                    <TextField
-                      fullWidth
-                      label="Домен"
-                      placeholder="WORKGROUP"
-                      value={smbDomain}
-                      onChange={(e) => setSmbDomain(e.target.value)}
-                    />
+                    <TextField fullWidth label="Домен" placeholder="WORKGROUP"
+                      value={s.smbDomain} onChange={(e) => set('smbDomain', e.target.value)} />
                   </Grid>
                 </>
               )}
@@ -341,20 +330,13 @@ const Settings = () => {
               {/* Кнопка сохранить */}
               <Grid item xs={12}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Button
-                    variant="contained"
-                    onClick={handleSaveConfigSource}
-                    disabled={saving}
-                    startIcon={<SaveIcon />}
-                  >
-                    {saving ? 'Сохранение...' : 'Сохранить'}
+                  <Button variant="contained" onClick={handleSaveConfigSource}
+                    disabled={s.sourceSaving} startIcon={<SaveIcon />}>
+                    {s.sourceSaving ? 'Сохранение...' : 'Сохранить'}
                   </Button>
-                  {saveMessage && (
-                    <Typography
-                      variant="body2"
-                      color={saveMessage.includes('Ошибка') ? 'error' : 'success.main'}
-                    >
-                      {saveMessage}
+                  {s.sourceMessage && (
+                    <Typography variant="body2" color={s.sourceMessage.includes('Ошибка') ? 'error' : 'success.main'}>
+                      {s.sourceMessage}
                     </Typography>
                   )}
                 </Box>
@@ -379,7 +361,7 @@ const Settings = () => {
                   Пользователи будут входить с корпоративными учётными данными
                 </Typography>
               </Box>
-              <Switch checked={ldapEnabled} onChange={(e) => setLdapEnabled(e.target.checked)} color="primary" />
+              <Switch checked={s.ldapEnabled} onChange={(e) => set('ldapEnabled', e.target.checked)} color="primary" />
             </Box>
 
             <Grid container spacing={3}>
@@ -387,33 +369,33 @@ const Settings = () => {
                 <TextField
                   fullWidth
                   label="LDAP URL"
-                  value={ldapUrl}
-                  onChange={(e) => setLdapUrl(e.target.value)}
+                  value={s.ldapUrl}
+                  onChange={(e) => set('ldapUrl', e.target.value)}
                   placeholder="ldap://192.168.1.100:389"
                   helperText="Адрес сервера Active Directory"
-                  disabled={!ldapEnabled}
+                  disabled={!s.ldapEnabled}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
                   label="Фильтр поиска пользователя"
-                  value={ldapUserFilter}
-                  onChange={(e) => setLdapUserFilter(e.target.value)}
+                  value={s.ldapUserFilter}
+                  onChange={(e) => set('ldapUserFilter', e.target.value)}
                   placeholder="(sAMAccountName=%s)"
                   helperText="%s будет заменён на введённый логин"
-                  disabled={!ldapEnabled}
+                  disabled={!s.ldapEnabled}
                 />
               </Grid>
               <Grid item xs={12} sm={8}>
                 <TextField
                   fullWidth
                   label="DN сервисного аккаунта (Bind DN)"
-                  value={ldapBindDn}
-                  onChange={(e) => setLdapBindDn(e.target.value)}
+                  value={s.ldapBindDn}
+                  onChange={(e) => set('ldapBindDn', e.target.value)}
                   placeholder="CN=svc-blackbox,CN=Users,DC=corp,DC=local"
                   helperText="Учётная запись для поиска пользователей в каталоге"
-                  disabled={!ldapEnabled}
+                  disabled={!s.ldapEnabled}
                 />
               </Grid>
               <Grid item xs={12} sm={4}>
@@ -421,22 +403,22 @@ const Settings = () => {
                   fullWidth
                   label="Пароль сервисного аккаунта"
                   type="password"
-                  value={ldapBindPassword}
-                  onChange={(e) => setLdapBindPassword(e.target.value)}
+                  value={s.ldapBindPassword}
+                  onChange={(e) => set('ldapBindPassword', e.target.value)}
                   placeholder="••••••••"
                   helperText="Оставьте пустым, чтобы сохранить текущий"
-                  disabled={!ldapEnabled}
+                  disabled={!s.ldapEnabled}
                 />
               </Grid>
               <Grid item xs={12}>
                 <TextField
                   fullWidth
                   label="База поиска пользователей (User Base DN)"
-                  value={ldapUserBase}
-                  onChange={(e) => setLdapUserBase(e.target.value)}
+                  value={s.ldapUserBase}
+                  onChange={(e) => set('ldapUserBase', e.target.value)}
                   placeholder="CN=Users,DC=corp,DC=local"
                   helperText="Раздел каталога, в котором будет выполняться поиск пользователей"
-                  disabled={!ldapEnabled}
+                  disabled={!s.ldapEnabled}
                 />
               </Grid>
 
@@ -449,49 +431,42 @@ const Settings = () => {
                 <TextField
                   fullWidth
                   label="Группа: Администратор"
-                  value={ldapRoleAdmin}
-                  onChange={(e) => setLdapRoleAdmin(e.target.value)}
+                  value={s.ldapRoleAdmin}
+                  onChange={(e) => set('ldapRoleAdmin', e.target.value)}
                   placeholder="CN=BB-Admins,CN=Users,DC=corp,DC=local"
-                  disabled={!ldapEnabled}
+                  disabled={!s.ldapEnabled}
                 />
               </Grid>
               <Grid item xs={12} sm={4}>
                 <TextField
                   fullWidth
                   label="Группа: Инженер"
-                  value={ldapRoleEngineer}
-                  onChange={(e) => setLdapRoleEngineer(e.target.value)}
+                  value={s.ldapRoleEngineer}
+                  onChange={(e) => set('ldapRoleEngineer', e.target.value)}
                   placeholder="CN=BB-Engineers,CN=Users,DC=corp,DC=local"
-                  disabled={!ldapEnabled}
+                  disabled={!s.ldapEnabled}
                 />
               </Grid>
               <Grid item xs={12} sm={4}>
                 <TextField
                   fullWidth
                   label="Группа: Оператор"
-                  value={ldapRoleOperator}
-                  onChange={(e) => setLdapRoleOperator(e.target.value)}
+                  value={s.ldapRoleOperator}
+                  onChange={(e) => set('ldapRoleOperator', e.target.value)}
                   placeholder="CN=BB-Operators,CN=Users,DC=corp,DC=local"
-                  disabled={!ldapEnabled}
+                  disabled={!s.ldapEnabled}
                 />
               </Grid>
 
               <Grid item xs={12}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Button
-                    variant="contained"
-                    onClick={handleSaveLDAP}
-                    disabled={ldapSaving}
-                    startIcon={<SaveIcon />}
-                  >
-                    {ldapSaving ? 'Сохранение...' : 'Сохранить'}
+                  <Button variant="contained" onClick={handleSaveLDAP}
+                    disabled={s.ldapSaving} startIcon={<SaveIcon />}>
+                    {s.ldapSaving ? 'Сохранение...' : 'Сохранить'}
                   </Button>
-                  {ldapSaveMessage && (
-                    <Typography
-                      variant="body2"
-                      color={ldapSaveMessage.includes('Ошибка') ? 'error' : 'success.main'}
-                    >
-                      {ldapSaveMessage}
+                  {s.ldapMessage && (
+                    <Typography variant="body2" color={s.ldapMessage.includes('Ошибка') ? 'error' : 'success.main'}>
+                      {s.ldapMessage}
                     </Typography>
                   )}
                 </Box>
@@ -514,8 +489,8 @@ const Settings = () => {
                   fullWidth
                   label="Интервал автосканирования (сек)"
                   type="number"
-                  value={scanInterval}
-                  onChange={(e) => setScanInterval(e.target.value)}
+                  value={s.scanInterval}
+                  onChange={(e) => set('scanInterval', e.target.value)}
                   helperText="Период между автоматическими сканированиями (мин. 5 сек)"
                   inputProps={{ min: 5 }}
                 />
@@ -525,25 +500,21 @@ const Settings = () => {
                   fullWidth
                   label="Порог фиксации изменений (0–1)"
                   type="number"
-                  value={diffThreshold}
-                  onChange={(e) => setDiffThreshold(e.target.value)}
+                  value={s.diffThreshold}
+                  onChange={(e) => set('diffThreshold', e.target.value)}
                   helperText="Минимальная доля изменений для сохранения новой версии"
                   inputProps={{ step: 0.01, min: 0.01, max: 1 }}
                 />
               </Grid>
               <Grid item xs={12}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Button
-                    variant="contained"
-                    onClick={handleSaveScanParams}
-                    disabled={scanSaving}
-                    startIcon={<SaveIcon />}
-                  >
-                    {scanSaving ? 'Сохранение...' : 'Сохранить'}
+                  <Button variant="contained" onClick={handleSaveScanParams}
+                    disabled={s.scanSaving} startIcon={<SaveIcon />}>
+                    {s.scanSaving ? 'Сохранение...' : 'Сохранить'}
                   </Button>
-                  {scanSaveMessage && (
-                    <Typography variant="body2" color={scanSaveMessage.includes('Ошибка') ? 'error' : 'success.main'}>
-                      {scanSaveMessage}
+                  {s.scanMessage && (
+                    <Typography variant="body2" color={s.scanMessage.includes('Ошибка') ? 'error' : 'success.main'}>
+                      {s.scanMessage}
                     </Typography>
                   )}
                 </Box>
