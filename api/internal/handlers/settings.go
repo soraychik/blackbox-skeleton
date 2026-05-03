@@ -165,6 +165,7 @@ func (h *SettingsHandler) loadSettings() (*models.SystemSettings, error) {
 	for rows.Next() {
 		var key, value string
 		if err := rows.Scan(&key, &value); err != nil {
+			log.Printf("settings: scan row: %v", err)
 			continue
 		}
 		switch key {

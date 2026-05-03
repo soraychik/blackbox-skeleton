@@ -135,7 +135,7 @@ export const exportConfigByDate = async (deviceId, date) => {
 
 export const searchChanges = async (body) => {
   const response = await api.post('/search/changes', body, {
-    timeout: 120000, // УДАЛИТЬ ПОТОМ. Костыль
+    timeout: 120000, // 2 минуты
   });
   return response.data;
 };

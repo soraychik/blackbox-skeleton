@@ -1,8 +1,3 @@
-/**
- * Преобразует дату из формата YYYY-MM-DD в DD/MM/YYYY
- * @param {string} isoDate - Дата в формате YYYY-MM-DD
- * @returns {string} Дата в формате DD/MM/YYYY
- */
 export const toDDMMYYYY = (isoDate) => {
   if (!isoDate || typeof isoDate !== 'string') return '';
   const parts = isoDate.trim().split(/[-/]/);
@@ -11,18 +6,13 @@ export const toDDMMYYYY = (isoDate) => {
   return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
 };
 
-/**
- * Форматирует дату в формат дд/мм/гггг чч:мм:сс
- * @param {string} dateString - Дата в формате ISO или MySQL datetime
- * @returns {string} Отформатированная дата
- */
 export const formatDateTime = (dateString) => {
   if (!dateString) return '';
   
   const date = new Date(dateString);
   
   if (isNaN(date.getTime())) {
-    return dateString; // Возвращаем исходную строку, если не удалось распарсить
+    return dateString;
   }
   
   const day = String(date.getDate()).padStart(2, '0');

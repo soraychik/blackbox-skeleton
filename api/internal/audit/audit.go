@@ -30,7 +30,6 @@ func (l *Logger) Log(username, role, action string, details map[string]any, ip s
 	}()
 }
 
-// FromGin extracts username, role and client IP from a Gin context.
 func FromGin(c *gin.Context) (username, role, ip string) {
 	if u, ok := c.Get("username"); ok {
 		username, _ = u.(string)

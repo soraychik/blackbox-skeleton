@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -83,6 +84,7 @@ func (h *AuditHandler) GetAuditLog(c *gin.Context) {
 		var e auditEntry
 		var details sql.NullString
 		if err := rows.Scan(&e.ID, &e.CreatedAt, &e.Username, &e.Role, &e.Action, &details, &e.IP); err != nil {
+			log.Printf("audit: scan row: %v", err)
 			continue
 		}
 		if details.Valid {
