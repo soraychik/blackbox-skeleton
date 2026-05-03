@@ -4,6 +4,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { getTheme } from './theme';
 import { useSettings } from './utils/useSettings';
+import { useRole } from './utils/useRole';
 import { setNavigate } from './utils/api';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -18,12 +19,8 @@ import AuditLog from './pages/AuditLog';
 import LoginPage from './pages/LoginPage';
 
 const RoleRoute = ({ roles, element }) => {
-  try {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
-    if (!roles.includes(user.role)) return <Navigate to="/" replace />;
-  } catch {
-    return <Navigate to="/" replace />;
-  }
+  const { role } = useRole();
+  if (!roles.includes(role)) return <Navigate to="/" replace />;
   return element;
 };
 
