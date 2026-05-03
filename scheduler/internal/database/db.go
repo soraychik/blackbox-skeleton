@@ -34,7 +34,7 @@ func NewDB() (*DB, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
 		dbUser, dbPassword, dbHost, dbPort, dbName)
 
-	log.Printf("connecting to mysql: %s", dsn)
+	log.Printf("connecting to mysql: %s:***@tcp(%s:%s)/%s", dbUser, dbHost, dbPort, dbName)
 
 	conn, err := sql.Open("mysql", dsn)
 	if err != nil {

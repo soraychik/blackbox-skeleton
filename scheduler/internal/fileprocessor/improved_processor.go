@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 )
 
-const CHAIN_LENGTH_THRESHOLD = 30
+const chainLengthThreshold = 30
 
 type ImprovedFileProcessor struct {
 	diffEngine    *storage.DiffEngine
@@ -125,15 +125,6 @@ func (ifp *ImprovedFileProcessor) SaveVersion(
 	return version, nil
 }
 
-func (ifp *ImprovedFileProcessor) PrepareStorage(
-	ctx context.Context,
-	db *database.DB,
-	fileInfo *models.FileInfo,
-	latestVersion *models.ConfigVersion,
-) (storageType, storagePath string, originalSize, compressedSize uint32, parentVersionID, chainBaseID *int, chainPosition int, err error) {
-	return ifp.determineStorageType(ctx, db, fileInfo, latestVersion)
-}
-
 func (ifp *ImprovedFileProcessor) determineStorageType(
 	ctx context.Context,
 	db *database.DB,
@@ -144,8 +135,8 @@ func (ifp *ImprovedFileProcessor) determineStorageType(
 		return ifp.saveBaseVersion(ctx, fileInfo, nil, 0)
 	}
 
-	if latestVersion.ChainPosition >= CHAIN_LENGTH_THRESHOLD-1 {
-		log.Printf("chain position %d >= %d, starting new chain", latestVersion.ChainPosition, CHAIN_LENGTH_THRESHOLD)
+	if latestVersion.ChainPosition >= chainLengthThreshold-1 {
+		log.Printf("chain position %d >= %d, starting new chain", latestVersion.ChainPosition, chainLengthThreshold)
 		return ifp.saveBaseVersion(ctx, fileInfo, latestVersion, latestVersion.ID)
 	}
 

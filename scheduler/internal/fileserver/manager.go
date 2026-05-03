@@ -50,6 +50,22 @@ type FileServerInstance struct {
 	isHealthy bool
 }
 
+func runWithWorkers(count int, jobs []func()) {
+	sem := make(chan struct{}, count)
+	var wg sync.WaitGroup
+	for _, job := range jobs {
+		wg.Add(1)
+		job := job
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			job()
+		}()
+	}
+	wg.Wait()
+}
+
 func NewFileServerManager(processor *fileprocessor.ImprovedFileProcessor, db *database.DB) *FileServerManager {
 	return &FileServerManager{
 		servers:   make(map[string]*FileServerInstance),
@@ -217,23 +233,16 @@ func (fsm *FileServerManager) processServer(id string, instance *FileServerInsta
 		return
 	}
 
-	sem := make(chan struct{}, fileWorkers)
-	var wg sync.WaitGroup
-
-	for _, filePath := range candidates {
-		wg.Add(1)
+	jobs := make([]func(), len(candidates))
+	for i, filePath := range candidates {
 		fp := filePath
-		go func() {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
+		jobs[i] = func() {
 			if err := fsm.processSingleFile(id, fp); err != nil {
 				log.Printf("error processing file %s from server %s: %v", fp, id, err)
 			}
-		}()
+		}
 	}
-
-	wg.Wait()
+	runWithWorkers(fileWorkers, jobs)
 	instance.lastCheck = time.Now()
 }
 
@@ -269,23 +278,16 @@ func (fsm *FileServerManager) processSMBServer(id string, instance *FileServerIn
 		return
 	}
 
-	sem := make(chan struct{}, fileWorkers)
-	var wg sync.WaitGroup
-
-	for _, entry := range candidates {
-		wg.Add(1)
+	jobs := make([]func(), len(candidates))
+	for i, entry := range candidates {
 		e := entry
-		go func() {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
+		jobs[i] = func() {
 			if err := fsm.processSMBFile(id, instance.smbClient, e); err != nil {
 				log.Printf("error processing SMB file %s from server %s: %v", e.Name, id, err)
 			}
-		}()
+		}
 	}
-
-	wg.Wait()
+	runWithWorkers(fileWorkers, jobs)
 	instance.lastCheck = time.Now()
 }
 
@@ -321,23 +323,16 @@ func (fsm *FileServerManager) processNFSServer(id string, instance *FileServerIn
 		return
 	}
 
-	sem := make(chan struct{}, fileWorkers)
-	var wg sync.WaitGroup
-
-	for _, entry := range candidates {
-		wg.Add(1)
+	jobs := make([]func(), len(candidates))
+	for i, entry := range candidates {
 		e := entry
-		go func() {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
+		jobs[i] = func() {
 			if err := fsm.processNFSFile(id, instance.nfsClient, e); err != nil {
 				log.Printf("error processing NFS file %s from server %s: %v", e.Name, id, err)
 			}
-		}()
+		}
 	}
-
-	wg.Wait()
+	runWithWorkers(fileWorkers, jobs)
 	instance.lastCheck = time.Now()
 }
 
@@ -484,7 +479,6 @@ func (fsm *FileServerManager) Close() error {
 	fsm.mu.Lock()
 	defer fsm.mu.Unlock()
 
-	var errs []error
 	for _, instance := range fsm.servers {
 		switch {
 		case instance.smbClient != nil:
@@ -492,9 +486,6 @@ func (fsm *FileServerManager) Close() error {
 		case instance.nfsClient != nil:
 			instance.nfsClient.Disconnect()
 		}
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("close errors: %v", errs)
 	}
 	return nil
 }
