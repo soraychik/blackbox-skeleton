@@ -151,16 +151,16 @@ const AuditLog = () => {
       </Card>
 
       <Card>
-        <TableContainer>
-          <Table size="small">
+        <TableContainer sx={{ overflowX: 'auto' }}>
+          <Table size="small" sx={{ minWidth: 360 }}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Дата и время</TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>Пользователь</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Роль</TableCell>
+                <TableCell sx={{ fontWeight: 600, display: { xs: 'none', sm: 'table-cell' } }}>Роль</TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>Действие</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Детали</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>IP</TableCell>
+                <TableCell sx={{ fontWeight: 600, display: { xs: 'none', md: 'table-cell' } }}>Детали</TableCell>
+                <TableCell sx={{ fontWeight: 600, display: { xs: 'none', sm: 'table-cell' } }}>IP</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -182,25 +182,16 @@ const AuditLog = () => {
                     {new Date(e.created_at).toLocaleString('ru-RU')}
                   </TableCell>
                   <TableCell>{e.username}</TableCell>
-                  <TableCell>
-                    <Chip
-                      label={ROLE_LABELS[e.role] || e.role}
-                      size="small"
-                      variant="outlined"
-                      sx={{ fontSize: 11 }}
-                    />
+                  <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
+                    <Chip label={ROLE_LABELS[e.role] || e.role} size="small" variant="outlined" sx={{ fontSize: 11 }} />
                   </TableCell>
                   <TableCell>
-                    <Chip
-                      label={ACTION_LABELS[e.action] || e.action}
-                      size="small"
-                      color={ACTION_COLORS[e.action] || 'default'}
-                    />
+                    <Chip label={ACTION_LABELS[e.action] || e.action} size="small" color={ACTION_COLORS[e.action] || 'default'} />
                   </TableCell>
-                  <TableCell sx={{ fontSize: 12, color: 'text.secondary', maxWidth: 320 }}>
+                  <TableCell sx={{ fontSize: 12, color: 'text.secondary', maxWidth: 320, display: { xs: 'none', md: 'table-cell' } }}>
                     {formatDetails(e.details)}
                   </TableCell>
-                  <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{e.ip_address}</TableCell>
+                  <TableCell sx={{ fontFamily: 'monospace', fontSize: 12, display: { xs: 'none', sm: 'table-cell' } }}>{e.ip_address}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

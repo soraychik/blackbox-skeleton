@@ -23,6 +23,8 @@ import {
   Link,
   TextField,
   MenuItem,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -39,6 +41,8 @@ import ChangesTab from '../components/ChangesTab';
 import ConfigViewDialog from '../components/ConfigViewDialog';
 
 const DeviceDetails = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { id } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -485,6 +489,7 @@ const DeviceDetails = () => {
         onClose={closeCompareDialog}
         maxWidth="xl"
         fullWidth
+        fullScreen={isMobile}
       >
         <DialogContent sx={{ p: 0 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>

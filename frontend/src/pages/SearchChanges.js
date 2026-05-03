@@ -22,6 +22,8 @@ import {
   TableRow,
   TextField,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -38,6 +40,8 @@ import ChangesTab from '../components/ChangesTab';
  * (добавились/удалились строки по шаблонам).
  */
 const SearchChanges = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [params, setParams] = useState({
@@ -255,15 +259,15 @@ const SearchChanges = () => {
                 </Box>
               )}
             </Box>
-            <TableContainer>
-              <Table>
+            <TableContainer sx={{ overflowX: 'auto' }}>
+              <Table sx={{ minWidth: 360 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ width: 50 }} />
                     <TableCell>Устройство</TableCell>
-                    <TableCell>IP</TableCell>
-                    <TableCell>Вендор</TableCell>
-                    <TableCell>Модель</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>IP</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Вендор</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Модель</TableCell>
                     <TableCell align="right">Изменений</TableCell>
                   </TableRow>
                 </TableHead>
@@ -297,9 +301,9 @@ const SearchChanges = () => {
                             {row.hostname}
                           </Typography>
                         </TableCell>
-                        <TableCell>{row.mgmt_ip || '-'}</TableCell>
-                        <TableCell>{row.vendor || '-'}</TableCell>
-                        <TableCell>{row.model || '-'}</TableCell>
+                        <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>{row.mgmt_ip || '-'}</TableCell>
+                        <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>{row.vendor || '-'}</TableCell>
+                        <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>{row.model || '-'}</TableCell>
                         <TableCell align="right">
                           <Chip
                             size="small"
@@ -371,7 +375,7 @@ const SearchChanges = () => {
         </Card>
       )}
 
-      <Dialog open={diffDialog.open} onClose={closeDiffDialog} maxWidth="xl" fullWidth>
+      <Dialog open={diffDialog.open} onClose={closeDiffDialog} maxWidth="xl" fullWidth fullScreen={isMobile}>
         <DialogContent sx={{ p: 0 }}>
           <Box
             sx={{

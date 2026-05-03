@@ -13,6 +13,8 @@ import {
   Dialog,
   DialogContent,
   IconButton,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import {
   Compare as CompareIcon,
@@ -24,6 +26,8 @@ import ListboxComponent from '../utils/VirtualListbox';
 import ChangesTab from '../components/ChangesTab';
 
 const DeviceDiff = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [loading, setLoading] = useState(true);
   const [devices, setDevices] = useState([]);
   const [leftDevice, setLeftDevice] = useState(null);
@@ -163,6 +167,7 @@ const DeviceDiff = () => {
         onClose={closeDialog}
         maxWidth="xl"
         fullWidth
+        fullScreen={isMobile}
       >
         <DialogContent sx={{ p: 0 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>

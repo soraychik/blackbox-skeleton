@@ -248,17 +248,17 @@ const Devices = () => {
           </Box>
         ) : (
           <>
-            <TableContainer>
-              <Table>
+            <TableContainer sx={{ overflowX: 'auto' }}>
+              <Table sx={{ minWidth: 360 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Имя устройства</TableCell>
-                    <TableCell>Тип</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Тип</TableCell>
                     <TableCell>IP адрес</TableCell>
-                    <TableCell>Вендор</TableCell>
-                    <TableCell>Модель</TableCell>
-                    <TableCell>Площадка</TableCell>
-                    <TableCell>Теги</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Вендор</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Модель</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Площадка</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>Теги</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -272,21 +272,19 @@ const Devices = () => {
                       <TableCell>
                         <Typography fontWeight={500}>{device.hostname}</Typography>
                       </TableCell>
-                      <TableCell>{device.device_type || '-'}</TableCell>
+                      <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>{device.device_type || '-'}</TableCell>
                       <TableCell>{device.mgmt_ip || '-'}</TableCell>
-                      <TableCell>{device.vendor || '-'}</TableCell>
-                      <TableCell>{device.model || '-'}</TableCell>
-                      <TableCell>{device.location || '-'}</TableCell>
-                      <TableCell>
+                      <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>{device.vendor || '-'}</TableCell>
+                      <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>{device.model || '-'}</TableCell>
+                      <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>{device.location || '-'}</TableCell>
+                      <TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
                         {device.tags ? (
                           <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                             {device.tags.split(',').map((tag, i) => (
                               <Chip key={i} label={tag.trim()} size="small" variant="outlined" />
                             ))}
                           </Box>
-                        ) : (
-                          '-'
-                        )}
+                        ) : '-'}
                       </TableCell>
                     </TableRow>
                   ))}
