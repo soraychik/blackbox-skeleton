@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strconv"
 
 	"blackbox-api/internal/models"
@@ -191,7 +192,7 @@ func (r *versionRepository) GetLatestForDevice(ctx context.Context, deviceID int
 func (r *versionRepository) ResolveByDate(ctx context.Context, deviceID int, date1, date2 string) (int, int, error) {
 	for _, d := range []string{date1, date2} {
 		if len(d) != 10 || d[4] != '-' || d[7] != '-' {
-			return 0, 0, nil
+			return 0, 0, fmt.Errorf("invalid date format: %s", d)
 		}
 	}
 
@@ -205,8 +206,23 @@ func (r *versionRepository) ResolveByDate(ctx context.Context, deviceID int, dat
 		return 0, 0, err
 	}
 
+	// Определяем какой даты нет и возвращаем понятную ошибку с последней известной датой
 	if !v1ID.Valid || !v2ID.Valid {
-		return 0, 0, nil
+		var lastDate string
+		r.db.QueryRowContext(ctx,
+			`SELECT DATE(created_at) FROM config_versions WHERE device_id = ? ORDER BY created_at DESC LIMIT 1`,
+			deviceID,
+		).Scan(&lastDate)
+
+		missingDate := date1
+		if v1ID.Valid && !v2ID.Valid {
+			missingDate = date2
+		}
+		if lastDate != "" {
+			return 0, 0, fmt.Errorf("no version for date %s; last config registered: %s", missingDate, lastDate)
+		}
+		return 0, 0, fmt.Errorf("no version for date %s", missingDate)
 	}
+
 	return int(v1ID.Int64), int(v2ID.Int64), nil
 }

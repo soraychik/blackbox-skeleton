@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -75,30 +75,17 @@ const Dashboard = () => {
   });
   const [topDevices, setTopDevices] = useState([]);
 
-  useEffect(() => {
-    loadData();
-    pollScanStatus();
-
-    const timer = setInterval(() => {
-      pollScanStatus();
-    }, 3000);
-
-    return () => clearInterval(timer);
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const data = await getDashboardStats();
-
       setStats({
         totalDevices: data.total_devices ?? 0,
         updatedToday: data.updated_today ?? 0,
         devicesWithChanges: data.devices_with_changes ?? 0,
       });
-
       setTopDevices(
-        (data.top_devices || []).map((t) => ({
+        (data.top_devices || []).map(t => ({
           deviceId: t.device_id,
           hostname: t.hostname,
           changeCount: t.change_count,
@@ -110,21 +97,9 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleTriggerScan = async () => {
-    try {
-      setScanning(true);
-      setError(null);
-      await triggerScan();
-      await loadData();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Не удалось запустить сканирование');
-      setScanning(false);
-    }
-  };
-
-  const pollScanStatus = async () => {
+  const pollScanStatus = useCallback(async () => {
     try {
       const status = await getScanStatus();
       const inProgress = Boolean(status?.in_progress);
@@ -140,9 +115,28 @@ const Dashboard = () => {
 
       setScanning(inProgress);
     } catch {
-      // Не прерываем интерфейс из-за временной ошибки статуса сканирования.
+      // Не прерываем интерфейс из-за временной ошибки статуса.
     }
-  };
+  }, [loadData]);
+
+  const handleTriggerScan = useCallback(async () => {
+    try {
+      setScanning(true);
+      setError(null);
+      await triggerScan();
+      await loadData();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Не удалось запустить сканирование');
+      setScanning(false);
+    }
+  }, [loadData]);
+
+  useEffect(() => {
+    loadData();
+    pollScanStatus();
+    const timer = setInterval(pollScanStatus, 5000);
+    return () => clearInterval(timer);
+  }, [loadData, pollScanStatus]);
 
   return (
     <Box>

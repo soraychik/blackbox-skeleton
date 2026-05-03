@@ -6,7 +6,6 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   CircularProgress,
   Dialog,
   DialogContent,
@@ -37,6 +36,17 @@ import {
 } from '@mui/icons-material';
 import { getDeviceVersions, getVersionContent, getVersionDiff, getDiffByDate, exportConfigByDate } from '../utils/api';
 import { formatDateTime, toDDMMYYYY } from '../utils/dateFormatter';
+import { downloadText } from '../utils/downloadFile';
+
+const parseDateError = (error, toDDMMYYYY) => {
+  const msg = error.response?.data?.error || error.message || '';
+  if (typeof msg !== 'string') return String(msg);
+  const withLast = msg.match(/no version for date (\S+); last config registered: (\S+)/);
+  if (withLast) return `Версия для даты ${toDDMMYYYY(withLast[1])} не обнаружена. Последняя дата регистрации: ${toDDMMYYYY(withLast[2])}`;
+  const onlyDate = msg.match(/no version for date (\S+)/);
+  if (onlyDate) return `Версия для даты ${toDDMMYYYY(onlyDate[1])} не обнаружена.`;
+  return msg;
+};
 import ChangesTab from '../components/ChangesTab';
 import ConfigViewDialog from '../components/ConfigViewDialog';
 
@@ -51,12 +61,8 @@ const DeviceDetails = () => {
   const [selectedVersions, setSelectedVersions] = useState({ left: null, right: null });
   const [viewDialog, setViewDialog] = useState({ open: false, content: '', versionId: null });
   const [compareDialog, setCompareDialog] = useState({ open: false, diffData: null, loading: false, leftTitle: null, rightTitle: null });
-  const [compareByDate, setCompareByDate] = useState({ date1: '', date2: '' });
-  const [exportDate, setExportDate] = useState('');
-  const [exportLoading, setExportLoading] = useState(false);
-  const [compareByDateLoading, setCompareByDateLoading] = useState(false);
-  const [compareByDateError, setCompareByDateError] = useState('');
-  const [exportError, setExportError] = useState('');
+  const [dateCompare, setDateCompare] = useState({ date1: '', date2: '', loading: false, error: '' });
+  const [exportState, setExportState] = useState({ date: '', loading: false, error: '' });
 
   const loadData = useCallback(async () => {
     try {
@@ -102,13 +108,7 @@ const DeviceDetails = () => {
   const handleDownloadVersion = async (versionId) => {
     try {
       const content = await getVersionContent(versionId);
-      const blob = new Blob([content], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = buildVersionFilename(versionId);
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadText(content, buildVersionFilename(versionId));
     } catch (error) {
       console.error('Failed to download version:', error);
     }
@@ -136,72 +136,55 @@ const DeviceDetails = () => {
     setSelectedVersions({ left: null, right: null });
   };
 
-  // Сравнение конфигурации устройства между датами
   const handleCompareByDate = async () => {
-    if (!compareByDate.date1 || !compareByDate.date2) return;
-    setCompareByDateError('');
+    if (!dateCompare.date1 || !dateCompare.date2) return;
+    setDateCompare(p => ({ ...p, loading: true, error: '' }));
+    setCompareDialog({ open: true, diffData: null, loading: true, leftTitle: null, rightTitle: null });
     try {
-      setCompareByDateLoading(true);
-      setCompareDialog({ open: true, diffData: null, loading: true, leftTitle: null, rightTitle: null });
-      const diff = await getDiffByDate(id, compareByDate.date1, compareByDate.date2);
-      const left = versions.find((v) => Number(v.id) === Number(diff.left_version_id));
-      const right = versions.find((v) => Number(v.id) === Number(diff.right_version_id));
-      const leftTitle = `${device?.hostname || 'Конфиг'} (${left?.created_at ? formatDateTime(left.created_at) : toDDMMYYYY(compareByDate.date1)})`;
-      const rightTitle = `${device?.hostname || 'Конфиг'} (${right?.created_at ? formatDateTime(right.created_at) : toDDMMYYYY(compareByDate.date2)})`;
-      setCompareDialog({ open: true, diffData: diff, loading: false, leftTitle, rightTitle });
+      const diff = await getDiffByDate(id, dateCompare.date1, dateCompare.date2);
+      const left = versions.find(v => Number(v.id) === Number(diff.left_version_id));
+      const right = versions.find(v => Number(v.id) === Number(diff.right_version_id));
+      const hostname = device?.hostname || 'Конфиг';
+      setCompareDialog({
+        open: true, diffData: diff, loading: false,
+        leftTitle: `${hostname} (${left?.created_at ? formatDateTime(left.created_at) : toDDMMYYYY(dateCompare.date1)})`,
+        rightTitle: `${hostname} (${right?.created_at ? formatDateTime(right.created_at) : toDDMMYYYY(dateCompare.date2)})`,
+      });
     } catch (error) {
-      const msg = error.response?.data?.error || error.message;
-      const withLast = typeof msg === 'string' && msg.match(/no version for date (\S+); last config registered: (\S+)/);
-      const onlyDate = typeof msg === 'string' && msg.match(/no version for date (\S+)/);
-      const formatted = withLast
-        ? `Версия для даты ${toDDMMYYYY(withLast[1])} не обнаружена. Последняя дата регистрации: ${toDDMMYYYY(withLast[2])}`
-        : onlyDate
-          ? `Версия для даты ${toDDMMYYYY(onlyDate[1])} не обнаружена.`
-          : msg;
-      setCompareByDateError(formatted);
       setCompareDialog({ open: false, diffData: null, loading: false, leftTitle: null, rightTitle: null });
+      setDateCompare(p => ({ ...p, error: parseDateError(error, toDDMMYYYY) }));
     } finally {
-      setCompareByDateLoading(false);
+      setDateCompare(p => ({ ...p, loading: false }));
     }
   };
 
-  // Выгрузка конфига за выбранную дату
   const handleExportByDate = async () => {
-    if (!exportDate) return;
-    setExportError('');
+    if (!exportState.date) return;
+    setExportState(p => ({ ...p, loading: true, error: '' }));
     try {
-      setExportLoading(true);
-      const response = await exportConfigByDate(id, exportDate);
-      const blob = response.data;
-      const url = URL.createObjectURL(blob);
+      const response = await exportConfigByDate(id, exportState.date);
       const disposition = response.headers['content-disposition'];
-      let filename = `config_${device?.hostname || id}_${exportDate}.txt`;
-      if (disposition) {
-        const match = /filename="?([^";\n]+)"?/.exec(disposition);
-        if (match) filename = match[1];
-      }
+      const filenameMatch = disposition && /filename="?([^";\n]+)"?/.exec(disposition);
+      const filename = filenameMatch ? filenameMatch[1] : `config_${device?.hostname || id}_${exportState.date}.txt`;
+      const url = URL.createObjectURL(response.data);
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
     } catch (error) {
+      let msg = error.response?.data?.error || error.message;
       if (error.response?.status === 404 && error.response.data instanceof Blob) {
         try {
-          const text = await error.response.data.text();
-          const data = JSON.parse(text);
-          const msg = data.last_registered_date
-            ? `Конфиг для даты ${toDDMMYYYY(exportDate)} не обнаружен. Последняя дата регистрации: ${toDDMMYYYY(data.last_registered_date)}`
-            : `Конфиг для даты ${toDDMMYYYY(exportDate)} не обнаружен.`;
-          setExportError(msg);
-        } catch {
-          setExportError(error.message);
-        }
-      } else {
-        setExportError(error.response?.data?.error || error.message);
+          const parsed = JSON.parse(await error.response.data.text());
+          msg = parsed.last_registered_date
+            ? `Конфиг для даты ${toDDMMYYYY(exportState.date)} не обнаружен. Последняя дата регистрации: ${toDDMMYYYY(parsed.last_registered_date)}`
+            : `Конфиг для даты ${toDDMMYYYY(exportState.date)} не обнаружен.`;
+        } catch { /* msg уже установлен */ }
       }
+      setExportState(p => ({ ...p, error: msg }));
     } finally {
-      setExportLoading(false);
+      setExportState(p => ({ ...p, loading: false }));
     }
   };
 
@@ -354,8 +337,8 @@ const DeviceDetails = () => {
                 type="date"
                 label="Дата 1 (старая)"
                 InputLabelProps={{ shrink: true }}
-                value={compareByDate.date1}
-                onChange={(e) => setCompareByDate((prev) => ({ ...prev, date1: e.target.value }))}
+                value={dateCompare.date1}
+                onChange={(e) => setDateCompare(p => ({ ...p, date1: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12} sm={2} sx={{ textAlign: 'center' }}>
@@ -368,24 +351,24 @@ const DeviceDetails = () => {
                 type="date"
                 label="Дата 2 (новая)"
                 InputLabelProps={{ shrink: true }}
-                value={compareByDate.date2}
-                onChange={(e) => setCompareByDate((prev) => ({ ...prev, date2: e.target.value }))}
+                value={dateCompare.date2}
+                onChange={(e) => setDateCompare(p => ({ ...p, date2: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12}>
               <Button
                 variant="contained"
-                startIcon={compareByDateLoading ? <CircularProgress size={20} color="inherit" /> : <CompareIcon />}
+                startIcon={dateCompare.loading ? <CircularProgress size={20} color="inherit" /> : <CompareIcon />}
                 onClick={handleCompareByDate}
-                disabled={!compareByDate.date1 || !compareByDate.date2 || compareByDateLoading}
+                disabled={!dateCompare.date1 || !dateCompare.date2 || dateCompare.loading}
               >
-                {compareByDateLoading ? 'Сравнение...' : 'Сравнить по датам'}
+                {dateCompare.loading ? 'Сравнение...' : 'Сравнить по датам'}
               </Button>
             </Grid>
-            {compareByDateError && (
+            {dateCompare.error && (
               <Grid item xs={12}>
-                <Alert severity="error" onClose={() => setCompareByDateError('')}>
-                  {compareByDateError}
+                <Alert severity="error" onClose={() => setDateCompare(p => ({ ...p, error: '' }))}>
+                  {dateCompare.error}
                 </Alert>
               </Grid>
             )}
@@ -411,24 +394,24 @@ const DeviceDetails = () => {
                 type="date"
                 label="Дата"
                 InputLabelProps={{ shrink: true }}
-                value={exportDate}
-                onChange={(e) => setExportDate(e.target.value)}
+                value={exportState.date}
+                onChange={(e) => setExportState(p => ({ ...p, date: e.target.value }))}
               />
             </Grid>
             <Grid item xs={12} sm={4}>
               <Button
                 variant="contained"
-                startIcon={exportLoading ? <CircularProgress size={20} color="inherit" /> : <DownloadIcon />}
+                startIcon={exportState.loading ? <CircularProgress size={20} color="inherit" /> : <DownloadIcon />}
                 onClick={handleExportByDate}
-                disabled={!exportDate || exportLoading}
+                disabled={!exportState.date || exportState.loading}
               >
-                {exportLoading ? 'Выгрузка...' : 'Скачать конфиг'}
+                {exportState.loading ? 'Выгрузка...' : 'Скачать конфиг'}
               </Button>
             </Grid>
-            {exportError && (
+            {exportState.error && (
               <Grid item xs={12}>
-                <Alert severity="error" onClose={() => setExportError('')}>
-                  {exportError}
+                <Alert severity="error" onClose={() => setExportState(p => ({ ...p, error: '' }))}>
+                  {exportState.error}
                 </Alert>
               </Grid>
             )}

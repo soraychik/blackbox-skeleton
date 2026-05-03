@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FixedSizeList } from 'react-window';
 import { useTheme } from '@mui/material/styles';
@@ -7,8 +7,6 @@ import {
   Box,
   Button,
   Typography,
-  Chip,
-  FormControl,
   CircularProgress,
   Autocomplete,
   TextField,
@@ -22,128 +20,67 @@ import ListboxComponent from '../utils/VirtualListbox';
 const ROW_HEIGHT = 20;
 const DIFF_LIST_HEIGHT_VH = 55;
 
-const DiffRow = ({ line, theme, lineNumWidth }) => {
+const LINE_COLORS = {
+  added:     { bg: { light: '#e6ffed', dark: 'rgba(46, 160, 67, 0.15)' },   text: 'success.main', prefix: '+ ' },
+  removed:   { bg: { light: '#ffeef0', dark: 'rgba(248, 81, 73, 0.15)' },   text: 'error.main',   prefix: '− ' },
+  unchanged: { bg: null,                                                       text: 'text.primary', prefix: '  ' },
+};
+
+// Одна колонка diff (левая или правая)
+const DiffCell = memo(({ lineNum, content, prefix, showContent, bgColor, textColor, lineNumWidth, borderRight }) => (
+  <Box sx={{ display: 'flex', minHeight: 20, minWidth: 0, ...(borderRight && { borderRight: 1, borderColor: 'divider' }) }}>
+    <Box sx={{
+      width: lineNumWidth, minWidth: lineNumWidth,
+      px: 1, textAlign: 'right', color: 'text.secondary',
+      bgcolor: showContent && bgColor ? bgColor : 'rgba(0,0,0,0.02)',
+      userSelect: 'none', borderRight: 1, borderColor: 'divider', flexShrink: 0,
+      fontFamily: 'monospace', fontSize: '0.75rem', lineHeight: '20px',
+    }}>
+      {showContent ? lineNum : ''}
+    </Box>
+    <Box sx={{
+      flex: 1, minWidth: 0, px: 1,
+      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      color: textColor, fontFamily: 'monospace', fontSize: '0.75rem', lineHeight: '20px',
+    }}>
+      {showContent ? prefix + (content || '') : ''}
+    </Box>
+  </Box>
+));
+
+const DiffRow = memo(({ line, lineNumWidth }) => {
+  const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
+  const colors = LINE_COLORS[line.type] || LINE_COLORS.unchanged;
+  const bgColor = colors.bg ? (isDark ? colors.bg.dark : colors.bg.light) : 'background.paper';
 
-  const getBackgroundColor = () => {
-    if (line.type === 'added') {
-      return isDark ? 'rgba(46, 160, 67, 0.15)' : '#e6ffed';
-    }
-    if (line.type === 'removed') {
-      return isDark ? 'rgba(248, 81, 73, 0.15)' : '#ffeef0';
-    }
-    return 'background.paper';
-  };
-
-  const getTextColor = () => {
-    if (line.type === 'added') return 'success.main';
-    if (line.type === 'removed') return 'error.main';
-    return 'text.primary';
-  };
+  const showLeft = line.type === 'removed' || line.type === 'unchanged';
+  const showRight = line.type === 'added' || line.type === 'unchanged';
 
   return (
-    <Box
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        bgcolor: getBackgroundColor(),
-      }}
-    >
-      <Box
-        sx={{
-          display: 'flex',
-          borderRight: 1,
-          borderColor: 'divider',
-          minHeight: 20,
-          minWidth: 0,
-        }}
-      >
-        <Box
-          sx={{
-            width: lineNumWidth,
-            minWidth: lineNumWidth,
-            px: 1,
-            textAlign: 'right',
-            color: 'text.secondary',
-            bgcolor: line.type === 'removed' ? getBackgroundColor() : 'rgba(0,0,0,0.02)',
-            userSelect: 'none',
-            borderRight: 1,
-            borderColor: 'divider',
-            flexShrink: 0,
-            fontFamily: 'monospace',
-            fontSize: '0.75rem',
-            lineHeight: '20px',
-          }}
-        >
-          {(line.type === 'removed' || line.type === 'unchanged') ? line.leftLineNum : ''}
-        </Box>
-        <Box
-          sx={{
-            flex: 1,
-            minWidth: 0,
-            px: 1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            color: getTextColor(),
-            fontFamily: 'monospace',
-            fontSize: '0.75rem',
-            lineHeight: '20px',
-          }}
-        >
-          {(line.type === 'removed' || line.type === 'unchanged')
-            ? (line.type === 'removed' ? '− ' : '  ') + (line.content || '')
-            : ''}
-        </Box>
-      </Box>
-      <Box
-        sx={{
-          display: 'flex',
-          minHeight: 20,
-          minWidth: 0,
-        }}
-      >
-        <Box
-          sx={{
-            width: lineNumWidth,
-            minWidth: lineNumWidth,
-            px: 1,
-            textAlign: 'right',
-            color: 'text.secondary',
-            bgcolor: line.type === 'added' ? getBackgroundColor() : 'rgba(0,0,0,0.02)',
-            userSelect: 'none',
-            borderRight: 1,
-            borderColor: 'divider',
-            flexShrink: 0,
-            fontFamily: 'monospace',
-            fontSize: '0.75rem',
-            lineHeight: '20px',
-          }}
-        >
-          {(line.type === 'added' || line.type === 'unchanged') ? line.rightLineNum : ''}
-        </Box>
-        <Box
-          sx={{
-            flex: 1,
-            minWidth: 0,
-            px: 1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            color: getTextColor(),
-            fontFamily: 'monospace',
-            fontSize: '0.75rem',
-            lineHeight: '20px',
-          }}
-        >
-          {(line.type === 'added' || line.type === 'unchanged')
-            ? (line.type === 'added' ? '+ ' : '  ') + (line.content || '')
-            : ''}
-        </Box>
-      </Box>
+    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', bgcolor: bgColor }}>
+      <DiffCell
+        lineNum={line.leftLineNum}
+        content={line.content}
+        prefix={showLeft ? colors.prefix : '  '}
+        showContent={showLeft}
+        bgColor={bgColor}
+        textColor={colors.text}
+        lineNumWidth={lineNumWidth}
+        borderRight
+      />
+      <DiffCell
+        lineNum={line.rightLineNum}
+        content={line.content}
+        prefix={showRight ? colors.prefix : '  '}
+        showContent={showRight}
+        bgColor={bgColor}
+        textColor={colors.text}
+        lineNumWidth={lineNumWidth}
+      />
     </Box>
   );
-};
+});
 
 const buildUnifiedDiff = (lines, leftName, rightName) => {
   const SPLIT_THRESHOLD = 7;
@@ -296,7 +233,7 @@ const ChangesTab = ({
     }
   }, [loadVersions, embedded, initialDiffData]);
 
-  const handleCompare = async () => {
+  const handleCompare = useCallback(async () => {
     if (!selectedVersion1 || !selectedVersion2) {
       setDiffError('Выберите обе версии для сравнения');
       return;
@@ -321,7 +258,7 @@ const ChangesTab = ({
     } finally {
       setDiffLoading(false);
     }
-  };
+  }, [selectedVersion1, selectedVersion2]);
 
   const getVersionInfo = (versionId) => {
     return versions.find(v => v.id === parseInt(versionId));
@@ -635,7 +572,6 @@ const ChangesTab = ({
                       <div style={style}>
                         <DiffRow
                           line={processedDiff.lines[index]}
-                          theme={theme}
                           lineNumWidth={processedDiff.lineNumWidth}
                         />
                       </div>
