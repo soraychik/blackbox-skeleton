@@ -94,8 +94,15 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 		updates["ldap_role_operator"] = req.LDAPRoleOperator
 	}
 
+	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to begin transaction"})
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+
 	for key, value := range updates {
-		if _, err := h.db.Exec(`
+		if _, err := tx.Exec(`
 			INSERT INTO system_settings (settings_key, settings_value)
 			VALUES (?, ?)
 			ON DUPLICATE KEY UPDATE settings_value = VALUES(settings_value)
@@ -103,6 +110,11 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update " + key})
 			return
 		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
+		return
 	}
 
 	notifySchedulerReload()

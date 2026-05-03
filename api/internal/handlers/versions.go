@@ -38,9 +38,9 @@ func NewVersionsHandler(db *sql.DB, minio *storage.MinIOImprovedClient, versionR
 }
 
 func (h *VersionsHandler) GetVersions(c *gin.Context) {
-	rows, err := h.db.Query(`
-		SELECT cv.id, cv.device_id, cv.version_hash, cv.storage_type, cv.storage_path, 
-		       cv.parent_version_id, cv.chain_base_id, cv.chain_position, 
+	rows, err := h.db.QueryContext(c.Request.Context(), `
+		SELECT cv.id, cv.device_id, cv.version_hash, cv.storage_type, cv.storage_path,
+		       cv.parent_version_id, cv.chain_base_id, cv.chain_position,
 		       cv.original_size, cv.compressed_size, cv.created_at,
 		       d.hostname
 		FROM config_versions cv

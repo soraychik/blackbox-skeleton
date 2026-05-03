@@ -38,6 +38,8 @@ func NewSearchHandler(minio *storage.MinIOImprovedClient, versionRepo repository
 	}
 }
 
+const searchWorkers = 20
+
 // patternHash возвращает короткий ключ для кэша search_index.
 func patternHash(pattern string, caseSensitive bool) string {
 	key := pattern
@@ -114,7 +116,7 @@ func (h *SearchHandler) PostSearchChanges(c *gin.Context) {
 	resultsCh := make(chan result, len(devices))
 
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
+	for i := 0; i < searchWorkers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -238,7 +240,7 @@ func (h *SearchHandler) PostSearchCount(c *gin.Context) {
 	resultsCh := make(chan result, len(devices))
 
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
+	for i := 0; i < searchWorkers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

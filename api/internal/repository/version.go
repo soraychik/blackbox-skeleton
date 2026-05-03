@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"time"
 
 	"blackbox-api/internal/models"
 )
@@ -17,19 +18,17 @@ func NewVersionRepository(db *sql.DB) VersionRepository {
 	return &versionRepository{db: db}
 }
 
-func (r *versionRepository) GetByID(ctx context.Context, id int) (*models.ConfigVersion, error) {
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+func scanVersion(s scanner) (models.ConfigVersion, error) {
 	var v models.ConfigVersion
 	var parentID, chainBaseID sql.NullInt32
-	err := r.db.QueryRowContext(ctx, `
-		SELECT id, device_id, version_hash, storage_type, storage_path, 
-		       parent_version_id, chain_base_id, chain_position, 
-		       original_size, compressed_size, created_at 
-		FROM config_versions WHERE id = ?`, id).Scan(
-		&v.ID, &v.DeviceID, &v.VersionHash, &v.StorageType, &v.StoragePath,
-		&parentID, &chainBaseID, &v.ChainPosition, &v.OriginalSize, &v.CompressedSize, &v.CreatedAt,
-	)
+	err := s.Scan(&v.ID, &v.DeviceID, &v.VersionHash, &v.StorageType, &v.StoragePath,
+		&parentID, &chainBaseID, &v.ChainPosition, &v.OriginalSize, &v.CompressedSize, &v.CreatedAt)
 	if err != nil {
-		return nil, err
+		return models.ConfigVersion{}, err
 	}
 	if parentID.Valid {
 		pid := int(parentID.Int32)
@@ -39,31 +38,41 @@ func (r *versionRepository) GetByID(ctx context.Context, id int) (*models.Config
 		cid := int(chainBaseID.Int32)
 		v.ChainBaseID = &cid
 	}
+	return v, nil
+}
+
+const versionSelectCols = `SELECT id, device_id, version_hash, storage_type, storage_path,
+	       parent_version_id, chain_base_id, chain_position,
+	       original_size, compressed_size, created_at`
+
+func (r *versionRepository) GetByID(ctx context.Context, id int) (*models.ConfigVersion, error) {
+	row := r.db.QueryRowContext(ctx,
+		versionSelectCols+` FROM config_versions WHERE id = ?`, id)
+	v, err := scanVersion(row)
+	if err != nil {
+		return nil, err
+	}
 	return &v, nil
 }
 
 func (r *versionRepository) GetByDevice(ctx context.Context, deviceID int, from, to string) ([]models.ConfigVersion, error) {
-	query := `SELECT id, device_id, version_hash, storage_type, storage_path, 
-		       parent_version_id, chain_base_id, chain_position, 
-		       original_size, compressed_size, created_at 
-		FROM config_versions 
-		WHERE device_id = ?`
+	query := versionSelectCols + ` FROM config_versions WHERE device_id = ?`
 	args := []interface{}{deviceID}
 
-	if from != "" && len(from) == 10 && from[4] == '-' && from[7] == '-' {
-		query += " AND DATE(created_at) >= ?"
-		args = append(args, from)
-	} else if from != "" {
-		if fromID, parseErr := strconv.Atoi(from); parseErr == nil {
+	if from != "" {
+		if _, err := time.Parse("2006-01-02", from); err == nil {
+			query += " AND DATE(created_at) >= ?"
+			args = append(args, from)
+		} else if fromID, err := strconv.Atoi(from); err == nil {
 			query += " AND id >= ?"
 			args = append(args, fromID)
 		}
 	}
-	if to != "" && len(to) == 10 && to[4] == '-' && to[7] == '-' {
-		query += " AND DATE(created_at) <= ?"
-		args = append(args, to)
-	} else if to != "" {
-		if toID, parseErr := strconv.Atoi(to); parseErr == nil {
+	if to != "" {
+		if _, err := time.Parse("2006-01-02", to); err == nil {
+			query += " AND DATE(created_at) <= ?"
+			args = append(args, to)
+		} else if toID, err := strconv.Atoi(to); err == nil {
 			query += " AND id <= ?"
 			args = append(args, toID)
 		}
@@ -79,19 +88,9 @@ func (r *versionRepository) GetByDevice(ctx context.Context, deviceID int, from,
 
 	var versions []models.ConfigVersion
 	for rows.Next() {
-		var v models.ConfigVersion
-		var parentID, chainBaseID sql.NullInt32
-		if err := rows.Scan(&v.ID, &v.DeviceID, &v.VersionHash, &v.StorageType, &v.StoragePath,
-			&parentID, &chainBaseID, &v.ChainPosition, &v.OriginalSize, &v.CompressedSize, &v.CreatedAt); err != nil {
+		v, err := scanVersion(rows)
+		if err != nil {
 			return nil, err
-		}
-		if parentID.Valid {
-			pid := int(parentID.Int32)
-			v.ParentVersionID = &pid
-		}
-		if chainBaseID.Valid {
-			cid := int(chainBaseID.Int32)
-			v.ChainBaseID = &cid
 		}
 		versions = append(versions, v)
 	}
@@ -99,18 +98,19 @@ func (r *versionRepository) GetByDevice(ctx context.Context, deviceID int, from,
 }
 
 func (r *versionRepository) GetPairsByDevice(ctx context.Context, deviceID int, from, to string) ([]models.VersionPair, error) {
-	query := `SELECT id, device_id, version_hash, storage_type, storage_path, 
-		       parent_version_id, chain_base_id, chain_position, 
-		       original_size, compressed_size, created_at 
-		FROM config_versions WHERE device_id = ?`
+	query := versionSelectCols + ` FROM config_versions WHERE device_id = ?`
 	args := []interface{}{deviceID}
-	if from != "" && len(from) == 10 {
-		query += " AND DATE(created_at) >= ?"
-		args = append(args, from)
+	if from != "" {
+		if _, err := time.Parse("2006-01-02", from); err == nil {
+			query += " AND DATE(created_at) >= ?"
+			args = append(args, from)
+		}
 	}
-	if to != "" && len(to) == 10 {
-		query += " AND DATE(created_at) <= ?"
-		args = append(args, to)
+	if to != "" {
+		if _, err := time.Parse("2006-01-02", to); err == nil {
+			query += " AND DATE(created_at) <= ?"
+			args = append(args, to)
+		}
 	}
 	query += " ORDER BY created_at ASC"
 
@@ -122,19 +122,9 @@ func (r *versionRepository) GetPairsByDevice(ctx context.Context, deviceID int, 
 
 	var versions []*models.ConfigVersion
 	for rows.Next() {
-		var v models.ConfigVersion
-		var parentID, chainBaseID sql.NullInt32
-		if err := rows.Scan(&v.ID, &v.DeviceID, &v.VersionHash, &v.StorageType, &v.StoragePath,
-			&parentID, &chainBaseID, &v.ChainPosition, &v.OriginalSize, &v.CompressedSize, &v.CreatedAt); err != nil {
+		v, err := scanVersion(rows)
+		if err != nil {
 			return nil, err
-		}
-		if parentID.Valid {
-			pid := int(parentID.Int32)
-			v.ParentVersionID = &pid
-		}
-		if chainBaseID.Valid {
-			cid := int(chainBaseID.Int32)
-			v.ChainBaseID = &cid
 		}
 		vCopy := v
 		versions = append(versions, &vCopy)
@@ -159,39 +149,21 @@ func (r *versionRepository) GetLastDate(ctx context.Context, deviceID int) (stri
 }
 
 func (r *versionRepository) GetLatestForDevice(ctx context.Context, deviceID int) (*models.ConfigVersion, error) {
-	var v models.ConfigVersion
-	var parentID, chainBaseID sql.NullInt32
-	err := r.db.QueryRowContext(ctx, `
-		SELECT id, device_id, version_hash, storage_type, storage_path,
-		       parent_version_id, chain_base_id, chain_position,
-		       original_size, compressed_size, created_at
-		FROM config_versions
-		WHERE device_id = ?
-		ORDER BY id DESC
-		LIMIT 1`,
-		deviceID,
-	).Scan(&v.ID, &v.DeviceID, &v.VersionHash, &v.StorageType, &v.StoragePath,
-		&parentID, &chainBaseID, &v.ChainPosition, &v.OriginalSize, &v.CompressedSize, &v.CreatedAt)
+	row := r.db.QueryRowContext(ctx,
+		versionSelectCols+` FROM config_versions WHERE device_id = ? ORDER BY id DESC LIMIT 1`, deviceID)
+	v, err := scanVersion(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	if parentID.Valid {
-		pid := int(parentID.Int32)
-		v.ParentVersionID = &pid
-	}
-	if chainBaseID.Valid {
-		cid := int(chainBaseID.Int32)
-		v.ChainBaseID = &cid
-	}
 	return &v, nil
 }
 
 func (r *versionRepository) ResolveByDate(ctx context.Context, deviceID int, date1, date2 string) (int, int, error) {
 	for _, d := range []string{date1, date2} {
-		if len(d) != 10 || d[4] != '-' || d[7] != '-' {
+		if _, err := time.Parse("2006-01-02", d); err != nil {
 			return 0, 0, fmt.Errorf("invalid date format: %s", d)
 		}
 	}
