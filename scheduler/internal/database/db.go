@@ -521,40 +521,6 @@ func (db *DB) SaveVersion(
 	return version, nil
 }
 
-func (db *DB) CreateJob(jobType string, status string, payloadJSON *string) (*models.Job, error) {
-	result, err := db.connection.Exec(`
-		INSERT INTO jobs (type, status, payload_json) 
-		VALUES (?, ?, ?)`,
-		jobType, status, payloadJSON,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create job: %w", err)
-	}
-
-	id, _ := result.LastInsertId()
-
-	job := &models.Job{
-		ID:          int(id),
-		Type:        jobType,
-		Status:      status,
-		PayloadJSON: payloadJSON,
-		CreatedAt:   time.Now(),
-	}
-
-	return job, nil
-}
-
-func (db *DB) UpdateJobStatus(jobID int, status string, errorText *string) error {
-	_, err := db.connection.Exec(`
-		UPDATE jobs SET status = ?, error_text = ?, finished_at = NOW() WHERE id = ?`,
-		status, errorText, jobID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update job status: %w", err)
-	}
-	return nil
-}
-
 func (db *DB) GetDiffIndex(leftVersionID, rightVersionID int) (*models.DiffIndex, error) {
 	var diffIndex models.DiffIndex
 	var storagePath sql.NullString

@@ -83,12 +83,11 @@ services:
       - /:/host:ro
     env_file: .env
     environment:
-      # network_mode: host — Docker DNS недоступен, используем 127.0.0.1
-      DATABASE_HOST: "127.0.0.1"
+      DATABASE_HOST: mysql-db
       DATABASE_USER: ${MYSQL_USER}
       DATABASE_PASSWORD: ${MYSQL_PASSWORD}
       DATABASE_NAME: ${MYSQL_DATABASE}
-      MINIO_ENDPOINT: "127.0.0.1:9000"
+      MINIO_ENDPOINT: "minio:9000"
     depends_on:
       mysql-db:
         condition: service_healthy
@@ -96,7 +95,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    network_mode: host
+    networks:
+      - blackbox-net
 
   api:
     build: ./api
@@ -109,13 +109,12 @@ services:
         max-file: "10"
     env_file: .env
     environment:
-      # network_mode: host — Docker DNS недоступен, используем 127.0.0.1
-      DATABASE_HOST: "127.0.0.1"
+      DATABASE_HOST: mysql-db
       DATABASE_USER: ${MYSQL_USER}
       DATABASE_PASSWORD: ${MYSQL_PASSWORD}
       DATABASE_NAME: ${MYSQL_DATABASE}
-      MINIO_ENDPOINT: "127.0.0.1:9000"
-      SCHEDULER_TRIGGER_URL: "http://127.0.0.1:9090"
+      MINIO_ENDPOINT: "minio:9000"
+      SCHEDULER_TRIGGER_URL: "http://scheduler:9090"
     depends_on:
       mysql-db:
         condition: service_healthy
@@ -123,7 +122,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    network_mode: host
+    networks:
+      - blackbox-net
 
   nginx:
     build:
@@ -140,8 +140,6 @@ services:
         max-file: "10"
     ports:
       - "80:80"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       - api
     networks:

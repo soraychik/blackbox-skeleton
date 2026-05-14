@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 )
 
-const chainLengthThreshold = 30
+const chainLengthThreshold = 30 // Вынести в настройки
 
 type ImprovedFileProcessor struct {
 	diffEngine    *storage.DiffEngine
@@ -29,7 +29,7 @@ func NewImprovedFileProcessor(useMinIO bool, diffThreshold float64) (*ImprovedFi
 	if useMinIO {
 		minioClient, err = storage.NewMinIOImprovedClient()
 		if err != nil {
-		return nil, fmt.Errorf("failed to initialize minio client: %w", err)
+			return nil, fmt.Errorf("failed to initialize minio client: %w", err)
 		}
 	}
 

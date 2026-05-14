@@ -62,35 +62,6 @@ type DiffIndex struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
-type Job struct {
-	ID          int        `json:"id"`
-	Type        string     `json:"type"`
-	Status      string     `json:"status"`
-	PayloadJSON *string    `json:"payload_json,omitempty"`
-	StartedAt   *time.Time `json:"started_at,omitempty"`
-	FinishedAt  *time.Time `json:"finished_at,omitempty"`
-	ErrorText   *string    `json:"error_text,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-}
-
-type User struct {
-	ID          int        `json:"id"`
-	Login       string     `json:"login"`
-	PassHash    string     `json:"-"`
-	Role        string     `json:"role"`
-	CreatedAt   time.Time  `json:"created_at"`
-	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
-}
-
-type Audit struct {
-	ID          int64     `json:"id"`
-	UserID      *int      `json:"user_id,omitempty"`
-	Action      string    `json:"action"`
-	TargetType  *string   `json:"target_type,omitempty"`
-	TargetID    *string   `json:"target_id,omitempty"`
-	PayloadJSON *string   `json:"payload_json,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-}
 
 type FileInfo struct {
 	Name     string
