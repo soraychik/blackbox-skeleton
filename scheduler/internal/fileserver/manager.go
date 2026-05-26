@@ -27,7 +27,6 @@ type FileServerConfig struct {
 	Server     string `json:"server"`
 	SharePath  string `json:"sharePath"`
 	ShareName  string `json:"shareName"`
-	MountPoint string `json:"mountPoint"`
 	Username   string `json:"username"`
 	Password   string `json:"password"`
 	Domain     string `json:"domain"`
@@ -500,6 +499,19 @@ func (fsm *FileServerManager) ReloadConfigSource(db *database.DB) error {
 		return fmt.Errorf("failed to get config source settings: %w", err)
 	}
 
+	for id, inst := range fsm.servers {
+		if strings.HasPrefix(id, "db-") {
+			continue
+		}
+		switch {
+		case inst.nfsClient != nil:
+			inst.nfsClient.Disconnect()
+		case inst.smbClient != nil:
+			inst.smbClient.Disconnect()
+		}
+		delete(fsm.servers, id)
+	}
+
 	switch cfg.Type {
 	case "smb":
 		if inst, ok := fsm.servers["db-nfs"]; ok {
@@ -643,48 +655,8 @@ func getConfigsFromEnv() map[string]*FileServerConfig {
 		configs["local"] = &FileServerConfig{
 			ID: "local", Type: "local", LocalPath: localPath, Enabled: true,
 		}
-		return configs
 	}
 
-	log.Println("production mode: remote file servers are used")
-
-	if getEnv("FILE_SERVER_ENABLED", "true") == "true" {
-		fsType := getEnv("FILE_SERVER_TYPE", "nfs")
-		var cfg *FileServerConfig
-		if fsType == "smb" {
-			cfg = &FileServerConfig{
-				ID:        "server1",
-				Type:      "smb",
-				Server:    getEnv("SMB_SERVER", ""),
-				ShareName: getEnv("SMB_SHARE_NAME", ""),
-				Username:  getEnv("SMB_USERNAME", "guest"),
-				Password:  getEnv("SMB_PASSWORD", ""),
-				Domain:    getEnv("SMB_DOMAIN", "WORKGROUP"),
-				Enabled:   true,
-			}
-		} else {
-			cfg = &FileServerConfig{
-				ID:         "server1",
-				Type:       fsType,
-				Server:     getEnv("NFS_SERVER", ""),
-				SharePath:  getEnv("NFS_SHARE_PATH", "/srv/share"),
-				MountPoint: getEnv("NFS_MOUNT_POINT", "/mnt/nfs"),
-				Enabled:    true,
-			}
-		}
-		configs["server1"] = cfg
-	}
-
-	if getEnv("FILE_SERVER_2_ENABLED", "false") == "true" {
-		configs["server2"] = &FileServerConfig{
-			ID:         "server2",
-			Type:       getEnv("FILE_SERVER_2_TYPE", "nfs"),
-			Server:     getEnv("FILE_SERVER_2_SERVER", ""),
-			SharePath:  getEnv("FILE_SERVER_2_SHARE_PATH", "/srv/share"),
-			MountPoint: getEnv("FILE_SERVER_2_MOUNT_POINT", "/mnt/nfs2"),
-			Enabled:    true,
-		}
-	}
 	return configs
 }
 

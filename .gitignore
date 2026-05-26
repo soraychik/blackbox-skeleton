@@ -35,3 +35,4 @@ clear_*.sh
 create_*.go
 test_*.go
 clear_database.sh
+ldap_test
