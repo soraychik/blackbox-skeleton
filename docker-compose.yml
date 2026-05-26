@@ -10,7 +10,7 @@ services:
         max-file: "7"
     env_file: .env
     ports:
-      - "3306:3306"
+      - 3306:3306
     volumes:
       - mysql_data:/var/lib/mysql
       - ./sql-init/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -35,9 +35,6 @@ services:
     env_file: .env
     environment:
       DATABASE_HOST: mysql-db
-      DATABASE_USER: ${MYSQL_USER}
-      DATABASE_PASSWORD: ${MYSQL_PASSWORD}
-      DATABASE_NAME: ${MYSQL_DATABASE}
     depends_on:
       mysql-db:
         condition: service_healthy
@@ -53,9 +50,6 @@ services:
       options:
         max-size: "50m"
         max-file: "7"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
@@ -84,9 +78,6 @@ services:
     env_file: .env
     environment:
       DATABASE_HOST: mysql-db
-      DATABASE_USER: ${MYSQL_USER}
-      DATABASE_PASSWORD: ${MYSQL_PASSWORD}
-      DATABASE_NAME: ${MYSQL_DATABASE}
       MINIO_ENDPOINT: "minio:9000"
     depends_on:
       mysql-db:
@@ -110,9 +101,6 @@ services:
     env_file: .env
     environment:
       DATABASE_HOST: mysql-db
-      DATABASE_USER: ${MYSQL_USER}
-      DATABASE_PASSWORD: ${MYSQL_PASSWORD}
-      DATABASE_NAME: ${MYSQL_DATABASE}
       MINIO_ENDPOINT: "minio:9000"
       SCHEDULER_TRIGGER_URL: "http://scheduler:9090"
     depends_on:
