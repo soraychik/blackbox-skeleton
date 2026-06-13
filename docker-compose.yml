@@ -9,8 +9,6 @@ services:
         max-size: "50m"
         max-file: "7"
     env_file: .env
-    ports:
-      - 3306:3306
     volumes:
       - mysql_data:/var/lib/mysql
       - ./sql-init/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -23,7 +21,6 @@ services:
       retries: 10
       start_period: 30s
 
-  # Запускается один раз после mysql-db, применяет новые миграции и завершается.
   migrate:
     build:
       context: .
@@ -91,6 +88,8 @@ services:
 
   api:
     build: ./api
+    ports:
+      - 8080:8080
     container_name: blackbox-api
     restart: unless-stopped
     logging:
@@ -110,26 +109,6 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    networks:
-      - blackbox-net
-
-  nginx:
-    build:
-      context: .
-      dockerfile: nginx/Dockerfile
-      args:
-        - VITE_API_URL=${VITE_API_URL:-/api}
-    container_name: blackbox-nginx
-    restart: unless-stopped
-    logging:
-      driver: json-file
-      options:
-        max-size: "100m"
-        max-file: "10"
-    ports:
-      - "80:80"
-    depends_on:
-      - api
     networks:
       - blackbox-net
 
